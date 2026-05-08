@@ -12,8 +12,8 @@ interface RoomData {
   color?: number;
   fanSpeed: number;
   masterSwitch: boolean;
-  fanDeviceId?: number;   // Thêm trường để lưu ID của Quạt
-  lightDeviceId?: number; // Thêm trường để lưu ID của Đèn/Màu
+  fanDeviceId?: number;   // ID của Quạt từ DB
+  lightDeviceId?: number; // ID của Đèn từ DB
 }
 
 interface Device {
@@ -74,24 +74,24 @@ export function Rooms() {
         const response = await axios.get('http://localhost:3000/api/devices');
         const devices: Device[] = response.data;
         
-        // Update master switch and map device IDs to rooms
+        // Dò tìm ID thực tế của Quạt và Đèn từ Database
+        const globalFanDevice = devices.find(d => d.name.includes('Fan'));
+        const globalLightDevice = devices.find(d => d.name.includes('Light'));
+        
         setRooms(prevRooms => prevRooms.map(room => {
           let masterSwitch = true;
-          let fanDeviceId: number | undefined;
-          let lightDeviceId: number | undefined;
+          // Gán ID thiết bị cho tất cả các phòng để phòng nào cũng điều khiển được
+          let fanDeviceId = globalFanDevice?.id;
+          let lightDeviceId = globalLightDevice?.id;
           
+          // Map device status to master switch
           devices.forEach(device => {
             const isOn = device.status === 'ON' || device.status === 'OPEN';
             
-            // Map ID & Status cho Living Room Light
             if (room.name.includes('Living') && device.name.includes('Light')) {
               masterSwitch = isOn;
-              lightDeviceId = device.id;
-            } 
-            // Map ID & Status cho Bedroom Fan
-            else if (room.name.includes('Bedroom') && device.name.includes('Fan')) {
+            } else if (room.name.includes('Bedroom') && device.name.includes('Fan')) {
               masterSwitch = isOn;
-              fanDeviceId = device.id;
             }
           });
           
@@ -111,30 +111,43 @@ export function Rooms() {
     ));
   };
 
-  // --- HÀM XỬ LÝ FAN SPEED ---
+  // --- HÀM XỬ LÝ QUẠT (FAN SPEED) ---
   const handleFanSpeedChange = async (room: RoomData, speed: number) => {
-    // 1. Cập nhật state trên giao diện ngay lập tức
+    // 1. Cập nhật state trên giao diện (chuyển màu nút bấm)
     updateRoom(room.id, { fanSpeed: speed });
-    const deviceId = room.fanDeviceId || 3; 
+
+    // 2. Kiểm tra xem đã lấy được ID từ DB chưa
+    if (!room.fanDeviceId) {
+      console.error("Không tìm thấy thiết bị Quạt trong Database!");
+      return;
+    }
+
+    console.log(`Đang gửi lệnh Quạt: mức ${speed} đến thiết bị ID: ${room.fanDeviceId}`);
+
+    // 3. Gửi request xuống backend
     try {
-      await axios.post(`http://localhost:3000/api/devices/${deviceId}/control`, { 
+      await axios.post(`http://localhost:3000/api/devices/${room.fanDeviceId}/control`, { 
         action: speed.toString() 
       });
-      console.log(`Đã gửi fan-state ${speed} cho thiết bị ID ${deviceId}`);
     } catch (error) {
       console.error('Lỗi khi điều khiển Fan:', error);
     }
   };
 
-  // --- HÀM XỬ LÝ COLOR ---
+  // --- HÀM XỬ LÝ MÀU SẮC (COLOR) ---
   const handleColorChange = async (room: RoomData, colorValue: number) => {
     // 1. Cập nhật state màu
     updateRoom(room.id, { color: colorValue });
 
-    // 2. Gửi request màu xuống backend
-    const deviceId = room.lightDeviceId || 1; // ID mặc định của đèn
+    // 2. Lấy ID đèn
+    if (!room.lightDeviceId) {
+      console.error("Không tìm thấy thiết bị Đèn trong Database!");
+      return;
+    }
+
+    // 3. Gửi request màu xuống backend
     try {
-      await axios.post(`http://localhost:3000/api/devices/${deviceId}/control`, { 
+      await axios.post(`http://localhost:3000/api/devices/${room.lightDeviceId}/control`, { 
         action: colorValue.toString() 
       });
     } catch (error) {
@@ -186,7 +199,6 @@ export function Rooms() {
                         <label className="text-sm font-medium text-gray-700">Color</label>
                         <span className="text-sm text-gray-500">{room.color}</span>
                       </div>
-                      {/* HIỆN THỰC THANH TRƯỢT DẢI MÀU */}
                       <input
                         type="range"
                         min="0"
@@ -195,7 +207,6 @@ export function Rooms() {
                         onChange={(e) => handleColorChange(room, parseInt(e.target.value))}
                         className="w-full h-3 rounded-lg appearance-none cursor-pointer"
                         style={{
-                          // Thêm dải màu gradient từ đỏ -> vàng -> lục -> lam -> đỏ (phong cách Hue)
                           background: 'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
                         }}
                       />
@@ -230,7 +241,7 @@ export function Rooms() {
                     {[0, 1, 2, 3].map((speed) => (
                       <button
                         key={speed}
-                        onClick={() => handleFanSpeedChange(room, speed)} // Gọi hàm xử lý mới
+                        onClick={() => handleFanSpeedChange(room, speed)}
                         className={`flex-1 py-2 px-4 rounded-lg border-2 transition-colors ${
                           room.fanSpeed === speed
                             ? 'border-blue-500 bg-blue-50 text-blue-700'
