@@ -12,8 +12,8 @@ interface RoomData {
   color?: number;
   fanSpeed: number;
   masterSwitch: boolean;
-  fanDeviceId?: number;   // ID của Quạt từ DB
-  lightDeviceId?: number; // ID của Đèn từ DB
+  fanDeviceId?: number;
+  lightDeviceId?: number;
 }
 
 interface Device {
@@ -21,6 +21,7 @@ interface Device {
   name: string;
   type: string;
   status: string;
+  current_value?: string | null;
 }
 
 export function Rooms() {
@@ -67,35 +68,38 @@ export function Rooms() {
     },
   ]);
 
-  // Fetch room/device states từ backend
   useEffect(() => {
     const fetchRoomStates = async () => {
       try {
         const response = await axios.get('http://localhost:3000/api/devices');
         const devices: Device[] = response.data;
-        
-        // Dò tìm ID thực tế của Quạt và Đèn từ Database
-        const globalFanDevice = devices.find(d => d.name.includes('Fan'));
-        const globalLightDevice = devices.find(d => d.name.includes('Light'));
-        
+
         setRooms(prevRooms => prevRooms.map(room => {
-          let masterSwitch = true;
-          // Gán ID thiết bị cho tất cả các phòng để phòng nào cũng điều khiển được
-          let fanDeviceId = globalFanDevice?.id;
-          let lightDeviceId = globalLightDevice?.id;
-          
-          // Map device status to master switch
+          let masterSwitch = room.masterSwitch;
+          let fanDeviceId: number | undefined;
+          let lightDeviceId: number | undefined;
+          let fanSpeed = room.fanSpeed;
+          let color = room.color;
+
           devices.forEach(device => {
             const isOn = device.status === 'ON' || device.status === 'OPEN';
-            
-            if (room.name.includes('Living') && device.name.includes('Light')) {
-              masterSwitch = isOn;
-            } else if (room.name.includes('Bedroom') && device.name.includes('Fan')) {
-              masterSwitch = isOn;
+
+            if (room.id === 'living-room' && device.type === 'light') {
+              lightDeviceId = device.id;
+              masterSwitch = masterSwitch || isOn;
+              if (device.current_value !== null && device.current_value !== undefined) {
+                color = Number(device.current_value);
+              }
+            } else if (room.id === 'living-room' && device.type === 'fan') {
+              fanDeviceId = device.id;
+              masterSwitch = masterSwitch || isOn;
+              if (device.current_value !== null && device.current_value !== undefined) {
+                fanSpeed = Number(device.current_value);
+              }
             }
           });
-          
-          return { ...room, masterSwitch, fanDeviceId, lightDeviceId };
+
+          return { ...room, masterSwitch, fanDeviceId, lightDeviceId, fanSpeed, color };
         }));
       } catch (error) {
         console.error('Error fetching room states:', error);
@@ -111,44 +115,40 @@ export function Rooms() {
     ));
   };
 
-  // --- HÀM XỬ LÝ QUẠT (FAN SPEED) ---
   const handleFanSpeedChange = async (room: RoomData, speed: number) => {
-    // 1. Cập nhật state trên giao diện (chuyển màu nút bấm)
     updateRoom(room.id, { fanSpeed: speed });
 
-    // 2. Kiểm tra xem đã lấy được ID từ DB chưa
-    if (!room.fanDeviceId) {
-      console.error("Không tìm thấy thiết bị Quạt trong Database!");
+    const deviceId = room.fanDeviceId;
+    if (!deviceId) {
+      console.warn(`Không tìm thấy fan device cho room ${room.id}`);
       return;
     }
 
-    console.log(`Đang gửi lệnh Quạt: mức ${speed} đến thiết bị ID: ${room.fanDeviceId}`);
-
-    // 3. Gửi request xuống backend
     try {
-      await axios.post(`http://localhost:3000/api/devices/${room.fanDeviceId}/control`, { 
-        action: speed.toString() 
+      await axios.post(`http://localhost:3000/api/devices/${deviceId}/control`, {
+        action: speed.toString()
       });
     } catch (error) {
       console.error('Lỗi khi điều khiển Fan:', error);
     }
   };
 
-  // --- HÀM XỬ LÝ MÀU SẮC (COLOR) ---
-  const handleColorChange = async (room: RoomData, colorValue: number) => {
-    // 1. Cập nhật state màu
+  const handleColorChange = (room: RoomData, colorValue: number) => {
     updateRoom(room.id, { color: colorValue });
+  };
 
-    // 2. Lấy ID đèn
-    if (!room.lightDeviceId) {
-      console.error("Không tìm thấy thiết bị Đèn trong Database!");
+  const handleColorCommit = async (room: RoomData) => {
+    const colorValue = room.color ?? 0;
+    const deviceId = room.lightDeviceId;
+
+    if (!deviceId) {
+      console.warn(`Không tìm thấy light device cho room ${room.id}`);
       return;
     }
 
-    // 3. Gửi request màu xuống backend
     try {
-      await axios.post(`http://localhost:3000/api/devices/${room.lightDeviceId}/control`, { 
-        action: colorValue.toString() 
+      await axios.post(`http://localhost:3000/api/devices/${deviceId}/control`, {
+        action: colorValue.toString()
       });
     } catch (error) {
       console.error('Lỗi khi điều chỉnh màu:', error);
@@ -165,7 +165,6 @@ export function Rooms() {
 
           return (
             <div key={room.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              {/* Header */}
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border-b border-gray-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
@@ -189,9 +188,7 @@ export function Rooms() {
                 </div>
               </div>
 
-              {/* Body - Controls */}
               <div className="p-6 space-y-6">
-                {/* Brightness/Color Control */}
                 <div>
                   {room.id === "living-room" ? (
                     <>
@@ -205,6 +202,8 @@ export function Rooms() {
                         max="65535"
                         value={room.color || 0}
                         onChange={(e) => handleColorChange(room, parseInt(e.target.value))}
+                        onPointerUp={() => handleColorCommit(room)}
+                        onTouchEnd={() => handleColorCommit(room)}
                         className="w-full h-3 rounded-lg appearance-none cursor-pointer"
                         style={{
                           background: 'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
@@ -229,33 +228,33 @@ export function Rooms() {
                   )}
                 </div>
 
-                {/* Fan Speed Control */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-medium text-gray-700">Fan Speed</label>
-                    <span className="text-sm text-gray-500">
-                      {room.fanSpeed === 0 ? 'Off' : room.fanSpeed === 3 ? 'Auto' : `Level ${room.fanSpeed}`}
-                    </span>
+                {room.id === 'living-room' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-700">Fan Speed</label>
+                      <span className="text-sm text-gray-500">
+                        {room.fanSpeed === 0 ? 'Off' : room.fanSpeed === 3 ? 'Auto' : `Level ${room.fanSpeed}`}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      {[0, 1, 2, 3].map((speed) => (
+                        <button
+                          key={speed}
+                          onClick={() => handleFanSpeedChange(room, speed)}
+                          className={`flex-1 py-2 px-4 rounded-lg border-2 transition-colors ${
+                            room.fanSpeed === speed
+                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                              : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {speed === 0 ? 'Off' : speed === 3 ? 'Auto' : speed}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    {[0, 1, 2, 3].map((speed) => (
-                      <button
-                        key={speed}
-                        onClick={() => handleFanSpeedChange(room, speed)}
-                        className={`flex-1 py-2 px-4 rounded-lg border-2 transition-colors ${
-                          room.fanSpeed === speed
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                      >
-                        {speed === 0 ? 'Off' : speed === 3 ? 'Auto' : speed}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                )}
               </div>
 
-              {/* Footer - Master Switch */}
               <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>

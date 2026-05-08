@@ -39,18 +39,25 @@ class MqttService {
         if (!this.client?.connected) return false;
 
         const topic = `${this.username}/feeds/${feedKey}`;
-        this.client.publish(topic, action.toString(), { qos: 1 });
-        console.log(`📤 Published to ${topic}: ${action}`);
+        return new Promise((resolve, reject) => {
+            this.client.publish(topic, action.toString(), { qos: 1 }, (error) => {
+                if (error) {
+                    console.error(`❌ Publish failed to ${topic}:`, error.message);
+                    reject(error);
+                    return;
+                }
 
-        // Đã xóa phần INSERT action_logs ở đây để tránh duplicate
-        return true;
+                console.log(`📤 Published to ${topic}: ${action}`);
+                resolve(true);
+            });
+        });
     }
 
     subscribeToAllFeeds() {
         const feedKeys = [
             'humidity', 'temperature', 'door', 
-            'fan-speed', 'fan-state', 'led-state', 'tv-state',
-            'rgb-state', 'system-state'
+            'fan-speed', 'fan-state', 'rgb-state', 'tv-state',
+            'system-state'
         ];
 
         const topics = feedKeys.map(key => `${this.username}/feeds/${key}`);
@@ -87,7 +94,7 @@ class MqttService {
                 }
                 
                 // 2. Xử lý trạng thái Bật/Tắt, Đóng/Mở
-                else if (['led-state', 'fan-state', 'door', 'tv-state'].includes(feedKey)) {
+                else if (['fan-state', 'door', 'tv-state'].includes(feedKey)) {
                     
                     // CHUYỂN ĐỔI SỐ THÀNH CHỮ ĐỂ FRONTEND ĐỌC ĐƯỢC
                     let dbStatus = dataString;
@@ -113,12 +120,20 @@ class MqttService {
 
                 // 3. Xử lý thông số mở rộng (Tốc độ quạt, Màu đèn)
                 else if (['fan-speed', 'rgb-state'].includes(feedKey)) {
-                    const targetFeedKey = feedKey === 'fan-speed' ? 'fan-state' : 'led-state';
+                    const targetFeedKey = feedKey === 'fan-speed' ? 'fan-state' : 'rgb-state';
 
                     await pool.execute(
                         'UPDATE devices SET current_value = ? WHERE feed_key = ?',
                         [dataString, targetFeedKey]
                     );
+
+                    if (feedKey === 'rgb-state') {
+                        const lightStatus = dataString === '0' ? 'OFF' : 'ON';
+                        await pool.execute(
+                            'UPDATE devices SET status = ? WHERE feed_key = ?',
+                            [lightStatus, targetFeedKey]
+                        );
+                    }
 
                     await pool.execute(
                         'INSERT INTO action_logs (device, action) VALUES (?, ?)',

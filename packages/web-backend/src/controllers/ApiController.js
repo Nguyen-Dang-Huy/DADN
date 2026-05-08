@@ -32,7 +32,7 @@ class ApiController {
             }
 
             // CHỈ Publish lên Adafruit IO MQTT với giá trị số (1/0)
-            mqttService.publishCommand(device.feed_key, action);
+            await mqttService.publishCommand(device.feed_key, action);
 
             // Đã xóa phần update DB ở đây để chuyển sang MqttService xử lý
             res.status(200).json({ action: action, success: true });

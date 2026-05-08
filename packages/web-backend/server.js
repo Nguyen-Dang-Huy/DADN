@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import apiRoutes from './src/routes/apiRoutes.js';
+import db from './src/config/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,10 +16,27 @@ const app = express();
 app.use(cors());
 app.use(express.json()); // Để parse JSON body
 
-// Đăng ký routes
-app.use('/', apiRoutes);
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Backend Server is running on port ${PORT}`);
+
+async function migrateFeedKeys() {
+    await db.execute(
+        'UPDATE devices SET feed_key = ? WHERE feed_key = ?',
+        ['rgb-state', 'led-state']
+    );
+}
+
+async function startServer() {
+    await migrateFeedKeys();
+
+    // Đăng ký routes
+    app.use('/', apiRoutes);
+
+    app.listen(PORT, () => {
+        console.log(`Backend Server is running on port ${PORT}`);
+    });
+}
+
+startServer().catch((error) => {
+    console.error('Failed to start backend server:', error);
+    process.exit(1);
 });

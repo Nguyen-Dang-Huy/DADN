@@ -57,13 +57,14 @@ export function History() {
     if (normalized.includes('fan')) return Fan;
     if (normalized.includes('tv')) return Tv;
     if (normalized.includes('door') || normalized.includes('lock')) return DoorClosed;
-    if (normalized.includes('light') || normalized.includes('led-state')) return Lightbulb;
+    if (normalized.includes('light') || normalized.includes('led-state') || normalized.includes('rgb-state')) return Lightbulb;
     return Shield;
   };
 
   const getDeviceName = (device: string) => {
     switch (device.toLowerCase()) {
       case 'led-state':
+      case 'rgb-state':
       case 'light':
         return 'Living Room Light';
       case 'fan-state':

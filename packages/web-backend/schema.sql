@@ -31,7 +31,7 @@ CREATE TABLE system_configs (
 );
 
 INSERT INTO devices (name, type, feed_key, status) VALUES 
-('Living Room Light', 'light', 'led-state', 'OFF'),
+('Living Room Light', 'light', 'rgb-state', 'OFF'),
 ('Bedroom Fan', 'fan', 'fan-state', 'OFF'),
 ('Front Door', 'door', 'door', 'CLOSED'),
 ('Living Room TV', 'tv', 'tv-state', 'OFF');
