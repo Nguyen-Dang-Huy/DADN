@@ -3,6 +3,7 @@ import logRepository from '../repositories/LogRepository.js';
 import deviceRepository from '../repositories/DeviceRepository.js';
 import systemConfigRepository from '../repositories/SystemConfigRepository.js';
 import mqttService from '../services/mqttService.js';
+import automationService from '../services/AutomationService.js'; // <-- Đã thêm import
 
 class ApiController {
     // 1. Lấy dữ liệu cảm biến mới nhất
@@ -91,24 +92,27 @@ class ApiController {
         try {
             const { mode, active } = req.body;
 
-            if (!mode) {
-                return res.status(400).json({ error: 'Mode is required' });
+            if (!mode || typeof active !== 'boolean') {
+                return res.status(400).json({ error: 'Tham số không hợp lệ' });
             }
 
-            // Lưu trạng thái chế độ vào hệ thống (có thể lưu vào DB hoặc file config)
-            console.log(`⚙️ Automation Mode [${mode}]: ${active ? 'ACTIVATED' : 'DEACTIVATED'}`);
-
-            // Có thể thêm logic để trigger các hành động tự động dựa trên mode
-            // Ví dụ: Nếu Away Mode activated, đóng tất cả lights, lock doors, etc.
+            // Gọi service thực thi kịch bản (ví dụ: tắt đèn, bật giả lập có người...)
+            const result = await automationService.setModeStatus(mode, active);
             
-            res.status(200).json({ 
-                mode: mode, 
-                active: active, 
-                success: true,
-                message: `${mode} has been ${active ? 'activated' : 'deactivated'}`
-            });
+            res.status(200).json(result);
         } catch (error) {
-            console.error('Set automation mode error:', error);
+            console.error('❌ Set automation mode error:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    }
+
+    // 8. Lấy trạng thái tự động hóa hiện tại
+    async getAutomationState(req, res) {
+        try {
+            const state = automationService.getAutomationState();
+            res.status(200).json(state);
+        } catch (error) {
+            console.error('❌ Lấy trạng thái automation error:', error);
             res.status(500).json({ error: 'Server error' });
         }
     }

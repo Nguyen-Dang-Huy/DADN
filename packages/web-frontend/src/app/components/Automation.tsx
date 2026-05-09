@@ -1,5 +1,5 @@
 import { Sparkles, Moon, Home, Sun } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNotification } from "../context/NotificationContext";
 
@@ -44,32 +44,52 @@ export function Automation() {
     },
   ]);
 
+  // Đồng bộ state từ backend khi mở trang
+  useEffect(() => {
+    const fetchAutomationState = async () => {
+      try {
+        const response = await axios.get('http://localhost:3000/api/automation/state');
+        const backendModes = response.data.modes;
+
+        setModes(prevModes => prevModes.map(m => ({
+          ...m,
+          // Kiểm tra xem backend có trả về state của mode này không, nếu có thì đè lên
+          active: backendModes[m.id] !== undefined ? backendModes[m.id].active : m.active 
+        })));
+      } catch (error) {
+        console.error('Failed to fetch automation state:', error);
+      }
+    };
+
+    fetchAutomationState();
+  }, []);
+
   const toggleMode = async (id: string) => {
-    // Find the mode being toggled
+    // Tìm mode đang được click
     const mode = modes.find(m => m.id === id);
     if (!mode) return;
 
     const newStatus = !mode.active;
 
-    // Optimistically update UI
+    // Cập nhật giao diện lập tức (Optimistic update)
     setModes(prev => prev.map(m =>
       m.id === id ? { ...m, active: newStatus } : m
     ));
 
     try {
-      // Call backend API
+      // Gọi API báo cho backend
       await axios.post('http://localhost:3000/api/automation/mode', {
         mode: id,
         active: newStatus
       });
 
-      // Show notification
+      // Hiện thông báo
       const statusText = newStatus ? 'activated' : 'deactivated';
       addNotification(`${mode.name} ${statusText}`, 'success');
     } catch (error) {
       console.error('Error updating automation mode:', error);
       
-      // Revert UI on error
+      // Nếu API lỗi, trả lại trạng thái cũ trên UI
       setModes(prev => prev.map(m =>
         m.id === id ? { ...m, active: !newStatus } : m
       ));

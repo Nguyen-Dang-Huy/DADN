@@ -7,6 +7,9 @@ import { dirname, join } from 'path';
 import apiRoutes from './src/routes/apiRoutes.js';
 import db from './src/config/db.js';
 
+// Import SchedulerService để chạy tự động hóa ngầm
+import schedulerService from './src/services/SchedulerService.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -30,6 +33,9 @@ async function startServer() {
 
     // Đăng ký routes
     app.use('/', apiRoutes);
+
+    // Khởi chạy hệ thống đặt lịch tự động hóa (Cron jobs)
+    schedulerService.initSchedules();
 
     app.listen(PORT, () => {
         console.log(`Backend Server is running on port ${PORT}`);
