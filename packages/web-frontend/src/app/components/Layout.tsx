@@ -1,8 +1,10 @@
 import { Link, Outlet, useLocation } from "react-router";
-import { Home, DoorOpen, Zap, Workflow, Clock, Settings, HelpCircle, Search, Bell, User } from "lucide-react";
+import { Home, DoorOpen, Zap, Workflow, Clock, Settings, HelpCircle, Bell, User } from "lucide-react";
+import { useNotification } from "../context/NotificationContext";
 
 export function Layout() {
   const location = useLocation();
+  const { unreadCount, markAsRead } = useNotification();
 
   const menuItems = [
     { path: "/", label: "Dashboard", icon: Home },
@@ -49,24 +51,20 @@ export function Layout() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
         {/* Top Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          {/* Search Bar */}
-          <div className="flex-1 max-w-xl">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="Search devices, rooms..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
+        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-end">
           {/* User Actions */}
-          <div className="flex items-center gap-4 ml-6">
-            <button className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={markAsRead}
+              className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Notifications"
+            >
               <Bell size={20} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white text-xs font-semibold">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
 
             <div className="flex items-center gap-3">

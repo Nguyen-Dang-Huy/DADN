@@ -1,6 +1,7 @@
 import { Lightbulb, DoorClosed, Fan, Tv, Lock, Thermometer, Shield } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { formatActionDisplay } from "../utils/actionFormatter";
 
 interface HistoryEntry {
   id: number;
@@ -69,7 +70,7 @@ export function History() {
         return 'Living Room Light';
       case 'fan-state':
       case 'fan':
-        return 'Bedroom Fan';
+        return 'Living Room Fan';
       case 'tv-state':
       case 'tv':
         return 'Living Room TV';
@@ -188,7 +189,7 @@ export function History() {
                         {actionType}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{formatAction(entry.action)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{formatActionDisplay(entry.action, entry.device)}</td>
                   </tr>
                 );
               })

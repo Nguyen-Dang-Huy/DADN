@@ -85,6 +85,33 @@ class ApiController {
             res.status(401).json({ error: 'Unauthorized' }); 
         }
     }
+
+    // 7. Cập nhật chế độ tự động hóa
+    async setAutomationMode(req, res) {
+        try {
+            const { mode, active } = req.body;
+
+            if (!mode) {
+                return res.status(400).json({ error: 'Mode is required' });
+            }
+
+            // Lưu trạng thái chế độ vào hệ thống (có thể lưu vào DB hoặc file config)
+            console.log(`⚙️ Automation Mode [${mode}]: ${active ? 'ACTIVATED' : 'DEACTIVATED'}`);
+
+            // Có thể thêm logic để trigger các hành động tự động dựa trên mode
+            // Ví dụ: Nếu Away Mode activated, đóng tất cả lights, lock doors, etc.
+            
+            res.status(200).json({ 
+                mode: mode, 
+                active: active, 
+                success: true,
+                message: `${mode} has been ${active ? 'activated' : 'deactivated'}`
+            });
+        } catch (error) {
+            console.error('Set automation mode error:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    }
 }
 
 export default new ApiController();

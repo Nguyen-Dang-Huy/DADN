@@ -14,6 +14,7 @@ interface RoomData {
   masterSwitch: boolean;
   fanDeviceId?: number;   // ID của Quạt từ DB
   lightDeviceId?: number; // ID của Đèn từ DB
+  lightStatus?: boolean;  // ON/OFF status của đèn
 }
 
 interface Device {
@@ -35,6 +36,7 @@ export function Rooms() {
       color: 32768,
       fanSpeed: 2,
       masterSwitch: true,
+      lightStatus: true,
     },
     {
       id: "kitchen",
@@ -68,6 +70,15 @@ export function Rooms() {
     },
   ]);
 
+  // --- HÀM HỖ TRỢ: Map backend fan speed values (0, 50, 100, 150) to UI levels (0, 1, 2, 3) ---
+  const mapBackendFanSpeedToUI = (backendValue: number): number => {
+    if (backendValue === 0) return 0; // Off
+    if (backendValue === 50) return 1; // Level 1
+    if (backendValue === 100) return 2; // Level 2
+    if (backendValue === 150) return 3; // Auto
+    return 0; // Default to Off
+  };
+
   // Fetch room/device states từ backend
   useEffect(() => {
     const fetchRoomStates = async () => {
@@ -82,6 +93,7 @@ export function Rooms() {
           let lightDeviceId: number | undefined;
           let fanSpeed = room.fanSpeed;
           let color = room.color;
+          let lightStatus = room.lightStatus;
           
           // Map device status to master switch
           devices.forEach(device => {
@@ -90,6 +102,7 @@ export function Rooms() {
             // Map ID & Status cho Living Room Light
             if (room.id === 'living-room' && device.type === 'light') {
               lightDeviceId = device.id;
+              lightStatus = isOn; // Set light status from backend
               masterSwitch = masterSwitch || isOn;
               if (device.current_value !== null && device.current_value !== undefined) {
                 color = Number(device.current_value);
@@ -99,13 +112,14 @@ export function Rooms() {
             else if (room.id === 'living-room' && device.type === 'fan') {
               fanDeviceId = device.id;
               masterSwitch = masterSwitch || isOn;
+              // Map backend fan speed value to UI level
               if (device.current_value !== null && device.current_value !== undefined) {
-                fanSpeed = Number(device.current_value);
+                fanSpeed = mapBackendFanSpeedToUI(Number(device.current_value));
               }
             }
           });
           
-          return { ...room, masterSwitch, fanDeviceId, lightDeviceId, fanSpeed, color };
+          return { ...room, masterSwitch, fanDeviceId, lightDeviceId, fanSpeed, color, lightStatus };
         }));
       } catch (error) {
         console.error('Error fetching room states:', error);
@@ -119,6 +133,25 @@ export function Rooms() {
     setRooms(prev => prev.map(room =>
       room.id === id ? { ...room, ...updates } : room
     ));
+  };
+
+  // --- HÀM XỬ LÝ ĐÈN (LIGHT TOGGLE) ---
+  const handleLightToggle = async (room: RoomData) => {
+    const newStatus = !(room.lightStatus ?? false);
+    updateRoom(room.id, { lightStatus: newStatus });
+    
+    if (!room.lightDeviceId) {
+      console.warn(`Không tìm thấy light device cho room ${room.id}`);
+      return;
+    }
+
+    try {
+      await axios.post(`http://localhost:3000/api/devices/${room.lightDeviceId}/control`, {
+        action: newStatus ? '1' : '0'
+      });
+    } catch (error) {
+      console.error('Lỗi khi điều khiển đèn:', error);
+    }
   };
 
   // --- HÀM XỬ LÝ QUẠT (FAN SPEED) ---
@@ -188,6 +221,23 @@ export function Rooms() {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Light Toggle for Living Room */}
+                  {room.id === 'living-room' && (
+                    <button
+                      onClick={() => handleLightToggle(room)}
+                      className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
+                        room.lightStatus ? 'bg-yellow-400' : 'bg-gray-300'
+                      }`}
+                      title={room.lightStatus ? 'Light is ON' : 'Light is OFF'}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                          room.lightStatus ? 'translate-x-7' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -198,8 +248,12 @@ export function Rooms() {
                   {room.id === "living-room" ? (
                     <>
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-gray-700">Color</label>
-                        <span className="text-sm text-gray-500">{room.color}</span>
+                        <label className={`text-sm font-medium ${room.lightStatus ? 'text-gray-700' : 'text-gray-400'}`}>
+                          Color
+                        </label>
+                        <span className={`text-sm ${room.lightStatus ? 'text-gray-500' : 'text-gray-400'}`}>
+                          {room.color}
+                        </span>
                       </div>
                       <input
                         type="range"
@@ -209,11 +263,17 @@ export function Rooms() {
                         onChange={(e) => handleColorChange(room, parseInt(e.target.value))}
                         onPointerUp={() => handleColorCommit(room)}
                         onTouchEnd={() => handleColorCommit(room)}
-                        className="w-full h-3 rounded-lg appearance-none cursor-pointer"
+                        disabled={!room.lightStatus}
+                        className={`w-full h-3 rounded-lg appearance-none cursor-pointer transition-opacity ${
+                          !room.lightStatus ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
                         style={{
                           background: 'linear-gradient(to right, #ff0000 0%, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000 100%)'
                         }}
                       />
+                      {!room.lightStatus && (
+                        <p className="text-xs text-gray-400 mt-2">Turn on the light to adjust color</p>
+                      )}
                     </>
                   ) : (
                     <>

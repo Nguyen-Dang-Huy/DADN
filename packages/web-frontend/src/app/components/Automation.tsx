@@ -1,5 +1,7 @@
 import { Sparkles, Moon, Home, Sun } from "lucide-react";
 import { useState } from "react";
+import axios from "axios";
+import { useNotification } from "../context/NotificationContext";
 
 interface AutomationMode {
   id: string;
@@ -10,6 +12,7 @@ interface AutomationMode {
 }
 
 export function Automation() {
+  const { addNotification } = useNotification();
   const [modes, setModes] = useState<AutomationMode[]>([
     {
       id: "auto",
@@ -41,10 +44,38 @@ export function Automation() {
     },
   ]);
 
-  const toggleMode = (id: string) => {
-    setModes(prev => prev.map(mode =>
-      mode.id === id ? { ...mode, active: !mode.active } : mode
+  const toggleMode = async (id: string) => {
+    // Find the mode being toggled
+    const mode = modes.find(m => m.id === id);
+    if (!mode) return;
+
+    const newStatus = !mode.active;
+
+    // Optimistically update UI
+    setModes(prev => prev.map(m =>
+      m.id === id ? { ...m, active: newStatus } : m
     ));
+
+    try {
+      // Call backend API
+      await axios.post('http://localhost:3000/api/automation/mode', {
+        mode: id,
+        active: newStatus
+      });
+
+      // Show notification
+      const statusText = newStatus ? 'activated' : 'deactivated';
+      addNotification(`${mode.name} ${statusText}`, 'success');
+    } catch (error) {
+      console.error('Error updating automation mode:', error);
+      
+      // Revert UI on error
+      setModes(prev => prev.map(m =>
+        m.id === id ? { ...m, active: !newStatus } : m
+      ));
+
+      addNotification('Failed to update automation mode', 'error');
+    }
   };
 
   return (

@@ -1,6 +1,7 @@
 import { Thermometer, Droplet, Zap, Shield, Lightbulb, DoorClosed, Fan, Tv } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import { useNotification } from "../context/NotificationContext";
 
 interface Device {
   id: number;
@@ -10,9 +11,16 @@ interface Device {
 }
 
 export function Dashboard() {
+  const { addNotification } = useNotification();
   const [sensorData, setSensorData] = useState({ temperature: 24, humidity: 65, timestamp: "" });
   const [allDevices, setAllDevices] = useState<Device[]>([]);
   const [deviceIdMap, setDeviceIdMap] = useState<Record<string, number>>({});
+  const previousDevicesRef = useRef<Record<string, boolean>>({
+    livingRoomLight: false,
+    garageDoor: false,
+    bedroomFan: false,
+    livingRoomTV: false,
+  });
   const [devices, setDevices] = useState({
     livingRoomLight: false,
     garageDoor: false,
@@ -52,7 +60,21 @@ export function Dashboard() {
           idMap.livingRoomTV = device.id;
         }
       });
-      
+
+      // Check for device state changes and notify
+      const previousDevices = previousDevicesRef.current;
+      Object.entries(deviceMap).forEach(([key, newStatus]) => {
+        if (previousDevices[key] !== newStatus) {
+          const deviceName = key
+            .replace(/([A-Z])/g, ' $1')
+            .replace(/^./, (str) => str.toUpperCase())
+            .trim();
+          const statusText = newStatus ? 'turned ON' : 'turned OFF';
+          addNotification(`${deviceName} ${statusText}`, 'info');
+          previousDevices[key] = newStatus;
+        }
+      });
+
       setDevices(deviceMap);
       setDeviceIdMap(idMap);
     } catch (error) {
@@ -84,8 +106,17 @@ export function Dashboard() {
     try {
       await axios.post(`http://localhost:3000/api/devices/${deviceId}/control`, { action });
       setDevices(prev => ({ ...prev, [deviceKey]: newStatus }));
+      
+      // Show notification
+      const deviceName = deviceKey
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, (str) => str.toUpperCase())
+        .trim();
+      const statusText = newStatus ? 'turned ON' : 'turned OFF';
+      addNotification(`${deviceName} ${statusText}`, 'success');
     } catch (error) {
       console.error('Error controlling device:', error);
+      addNotification('Failed to control device', 'error');
     }
   };
 
