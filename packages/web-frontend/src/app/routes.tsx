@@ -1,7 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import { Layout } from "./components/Layout";
 import { Dashboard } from "./components/Dashboard";
-import { Rooms } from "./components/Rooms";
+// Xóa dòng import Rooms
 import { Automation } from "./components/Automation";
 import { History } from "./components/History";
 
@@ -11,7 +11,7 @@ export const router = createBrowserRouter([
     Component: Layout,
     children: [
       { index: true, Component: Dashboard },
-      { path: "rooms", Component: Rooms },
+      // Đã xóa { path: "rooms", Component: Rooms }
       { path: "automation", Component: Automation },
       { path: "history", Component: History },
     ],

@@ -1,7 +1,9 @@
+import React from 'react';
+
 /**
  * Helper function to format action values for display
  * - If action is 'ON' or 'OFF', keep it as is
- * - If action is a number representing a color, format it with hex code and colored square
+ * - If action is a number representing a color, format it with HSL and colored square
  * - If action is a fan speed value, format it appropriately
  * - Otherwise, return the action as is
  */
@@ -32,16 +34,18 @@ export const formatActionDisplay = (action: string | number, device?: string): R
 
   // Check if it's a number (could be a color value)
   const numberValue = parseInt(actionStr, 10);
-  if (!isNaN(numberValue) && numberValue > 0 && !isFanDevice) {
-    // Convert decimal color to hex
-    const hexColor = numberValue.toString(16).padStart(6, '0').toUpperCase();
+  // FIX: Chỉ áp dụng dải màu nếu là số từ 0 đến 65535 và không phải là quạt
+  if (!isNaN(numberValue) && numberValue >= 0 && numberValue <= 65535 && !isFanDevice) {
+    // Convert dải 0-65535 sang độ (0-360) của hệ màu HSL
+    const hue = (numberValue / 65535) * 360;
+    
     return (
       <div className="flex items-center gap-2">
         <span>Color Change</span>
         <div
-          className="w-4 h-4 rounded border border-gray-300"
-          style={{ backgroundColor: `#${hexColor}` }}
-          title={`#${hexColor}`}
+          className="w-4 h-4 rounded border border-gray-300 shadow-sm"
+          style={{ backgroundColor: `hsl(${hue}, 100%, 50%)` }}
+          title={`Value: ${numberValue}`}
         />
       </div>
     );
@@ -68,10 +72,12 @@ const capitalizeFirstLetter = (str: string): string => {
 };
 
 /**
- * Convert decimal color value to hex
+ * Convert color value (0-65535) to HSL string
+ * (Đã sửa lại từ colorToHex để đồng bộ nếu có component khác gọi tới)
  */
-export const colorToHex = (colorValue: number): string => {
-  return colorValue.toString(16).padStart(6, '0').toUpperCase();
+export const colorToHsl = (colorValue: number): string => {
+  const hue = (colorValue / 65535) * 360;
+  return `hsl(${hue}, 100%, 50%)`;
 };
 
 /**
@@ -79,7 +85,7 @@ export const colorToHex = (colorValue: number): string => {
  */
 export const isColorAction = (action: string | number): boolean => {
   const numberValue = parseInt(String(action), 10);
-  return !isNaN(numberValue) && numberValue > 0 && !/^(0|1)$/i.test(String(action).trim());
+  return !isNaN(numberValue) && numberValue >= 0 && numberValue <= 65535 && !/^(0|1)$/i.test(String(action).trim());
 };
 
 /**

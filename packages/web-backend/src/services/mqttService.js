@@ -94,7 +94,7 @@ class MqttService {
                 }
                 
                 // 2. Xử lý trạng thái Bật/Tắt, Đóng/Mở
-                else if (['fan-state', 'door', 'tv-state'].includes(feedKey)) {
+                else if (['door', 'tv-state'].includes(feedKey)) {
                     
                     // CHUYỂN ĐỔI SỐ THÀNH CHỮ ĐỂ FRONTEND ĐỌC ĐƯỢC
                     let dbStatus = dataString;
@@ -119,8 +119,8 @@ class MqttService {
                 }
 
                 // 3. Xử lý thông số mở rộng (Tốc độ quạt, Màu đèn)
-                else if (['fan-speed', 'rgb-state'].includes(feedKey)) {
-                    const targetFeedKey = feedKey === 'fan-speed' ? 'fan-state' : 'rgb-state';
+                else if (['fan-state', 'rgb-state'].includes(feedKey)) {
+                    const targetFeedKey = feedKey === 'fan-state' ? 'fan-state' : 'rgb-state';
 
                     await pool.execute(
                         'UPDATE devices SET current_value = ? WHERE feed_key = ?',

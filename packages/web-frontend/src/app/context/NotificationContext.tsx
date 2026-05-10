@@ -14,6 +14,7 @@ interface NotificationContextType {
   addNotification: (message: string, type?: 'info' | 'success' | 'error' | 'warning') => void;
   clearNotifications: () => void;
   markAsRead: () => void;
+  removeNotification: (id: string) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -45,10 +46,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       toast.info(message);
     }
 
-    // Auto-remove after 5 seconds
+    // Auto-remove after 60 seconds (1 minute)
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 5000);
+    }, 60000);
   }, []);
 
   const clearNotifications = useCallback(() => {
@@ -60,8 +61,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setUnreadCount(0);
   }, []);
 
+  const removeNotification = useCallback((id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
   return (
-    <NotificationContext.Provider value={{ notifications, unreadCount, addNotification, clearNotifications, markAsRead }}>
+    <NotificationContext.Provider value={{ notifications, unreadCount, addNotification, clearNotifications, markAsRead, removeNotification }}>
       {children}
     </NotificationContext.Provider>
   );
