@@ -116,6 +116,40 @@ class ApiController {
             res.status(500).json({ error: 'Server error' });
         }
     }
+    
+    // 9. Lấy cài đặt AUTO Mode
+    async getAutomationSettings(req, res) {
+        try {
+            const settings = await automationService.getAutoModeSettings();
+            res.status(200).json(settings);
+        } catch (error) {
+            console.error('❌ Get automation settings error:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    }
+
+    // 10. Lưu cài đặt AUTO Mode
+    async setAutomationSettings(req, res) {
+        try {
+            const { fanTime, lightTime, fanTemperature } = req.body;
+            
+            if (!fanTime || !lightTime || fanTemperature === undefined) {
+                return res.status(400).json({ error: 'Missing required parameters' });
+            }
+
+            const settings = await automationService.setAutoModeSettings({
+                fanTime,
+                lightTime,
+                fanTemperature: parseFloat(fanTemperature)
+            });
+
+            res.status(200).json(settings);
+        } catch (error) {
+            console.error('❌ Set automation settings error:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    }
+
 }
 
 export default new ApiController();

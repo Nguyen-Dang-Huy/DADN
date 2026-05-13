@@ -21,6 +21,24 @@ app.use(express.json()); // Để parse JSON body
 
 const PORT = process.env.PORT || 3000;
 
+async function waitForDatabase(maxAttempts = 20, delayMs = 3000) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            await db.execute('SELECT 1');
+            console.log('Database connection established.');
+            return;
+        } catch (error) {
+            console.error(`Database not ready (attempt ${attempt}/${maxAttempts}): ${error.message}`);
+
+            if (attempt === maxAttempts) {
+                throw error;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+    }
+}
+
 async function migrateFeedKeys() {
     await db.execute(
         'UPDATE devices SET feed_key = ? WHERE feed_key = ?',
@@ -29,6 +47,7 @@ async function migrateFeedKeys() {
 }
 
 async function startServer() {
+    await waitForDatabase();
     await migrateFeedKeys();
 
     // Đăng ký routes

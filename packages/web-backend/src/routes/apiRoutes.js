@@ -13,6 +13,8 @@ router.get('/api/logs', apiController.getLogs);
 
 // --- API AUTOMATION ---
 router.post('/api/automation/mode', apiController.setAutomationMode);
-router.get('/api/automation/state', apiController.getAutomationState); // <-- Dòng vừa được thêm
+router.get('/api/automation/state', apiController.getAutomationState);
+router.get('/api/automation/settings', apiController.getAutomationSettings);
+router.post('/api/automation/settings', apiController.setAutomationSettings);
 
 export default router;

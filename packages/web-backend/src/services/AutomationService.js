@@ -20,6 +20,13 @@ class AutomationService {
     // Track presence simulation
     this.presenceSimulation = null;
 
+    // AUTO Mode settings
+    this.autoModeSettings = {
+      fanTime: "08:00",
+      lightTime: "07:00",
+      fanTemperature: 28
+    };
+
     // Real-time sensor monitoring
     this.setupSensorMonitoring();
   }
@@ -259,11 +266,19 @@ class AutomationService {
 
           // Humidity check and alert
           await this.humidityCheck(humidity);
+
+                  // AUTO Mode: Smart Fan Control with settings
+                  await this.smartFanControlWithSettings(temperature);
         }
       } catch (error) {
         console.error('❌ [AUTO Mode] Sensor monitoring error:', error.message);
       }
     }, 60 * 1000); // Check every 60 seconds
+    // Also check schedule every minute
+    setInterval(async () => {
+      await this.checkAutoModeSchedule();
+    }, 60 * 1000);
+
   }
 
   /**
@@ -352,6 +367,92 @@ class AutomationService {
   getSensorData() {
     return this.sensorData;
   }
+  
+
+  /**
+   * Smart Fan Control based on AUTO Mode settings
+   * Checks if current temperature exceeds fanTemperature setting
+   */
+  async smartFanControlWithSettings(temperature) {
+    if (!this.automationModes.auto.active) return;
+
+    const fanTempThreshold = this.autoModeSettings.fanTemperature;
+    
+    if (temperature >= fanTempThreshold) {
+      console.log(`🌡️ [AUTO Mode] Temperature ${temperature}°C >= Setting ${fanTempThreshold}°C → Turning on fan`);
+      try {
+        await mqttService.publishCommand('fan-speed', '100'); // Turn on fan at medium speed
+        await pool.execute(
+          'INSERT INTO action_logs (device, action) VALUES (?, ?)',
+          ['auto-mode', `Fan auto-on by temperature: ${temperature}°C >= ${fanTempThreshold}°C`]
+        );
+      } catch (error) {
+        console.error('❌ [AUTO Mode] Fan temperature control error:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Check and apply AUTO Mode scheduled tasks
+   * This checks if current time matches fanTime or lightTime from settings
+   */
+  async checkAutoModeSchedule() {
+    if (!this.automationModes.auto.active) return;
+
+    const now = new Date();
+    const currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
+                        now.getMinutes().toString().padStart(2, '0');
+
+    // Check fan time
+    if (currentTime === this.autoModeSettings.fanTime) {
+      console.log(`🕐 [AUTO Mode] Fan auto-on time matched: ${currentTime}`);
+      try {
+        await mqttService.publishCommand('fan-speed', '50'); // Turn on fan
+        await pool.execute(
+          'INSERT INTO action_logs (device, action) VALUES (?, ?)',
+          ['auto-mode', `Fan auto-on by schedule: ${currentTime}`]
+        );
+      } catch (error) {
+        console.error('❌ [AUTO Mode] Fan schedule error:', error.message);
+      }
+    }
+
+    // Check light time
+    if (currentTime === this.autoModeSettings.lightTime) {
+      console.log(`🕐 [AUTO Mode] Light auto-on time matched: ${currentTime}`);
+      try {
+        await mqttService.publishCommand('rgb-state', '16777215'); // Turn on light (white)
+        await pool.execute(
+          'INSERT INTO action_logs (device, action) VALUES (?, ?)',
+          ['auto-mode', `Light auto-on by schedule: ${currentTime}`]
+        );
+      } catch (error) {
+        console.error('❌ [AUTO Mode] Light schedule error:', error.message);
+      }
+    }
+  }
+
+  /**
+   * Get AUTO Mode settings
+   */
+  async getAutoModeSettings() {
+    return this.autoModeSettings;
+  }
+
+  /**
+   * Set AUTO Mode settings
+   */
+  async setAutoModeSettings(settings) {
+    this.autoModeSettings = {
+      fanTime: settings.fanTime,
+      lightTime: settings.lightTime,
+      fanTemperature: settings.fanTemperature
+    };
+    
+    console.log(`⚙️ [AUTO Mode Settings] Updated:`, this.autoModeSettings);
+    return this.autoModeSettings;
+  }
+
 }
 
 export default new AutomationService();
