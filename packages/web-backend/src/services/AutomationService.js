@@ -5,10 +5,10 @@ class AutomationService {
   constructor() {
     // Store automation state and configs
     this.automationModes = {
-      auto: { active: true, config: {} },
+      auto: { active: false, config: {} },
       away: { active: false, config: {} },
       night: { active: false, config: {} },
-      morning: { active: true, config: {} }
+      morning: { active: false, config: {} }
     };
 
     this.sensorData = {
@@ -22,13 +22,59 @@ class AutomationService {
 
     // AUTO Mode settings
     this.autoModeSettings = {
+      fanEnabled: true,
       fanTime: "08:00",
+      fanTemperature: 28,
+      lightEnabled: true,
       lightTime: "07:00",
-      fanTemperature: 28
     };
 
-    // Real-time sensor monitoring
-    this.setupSensorMonitoring();
+    // Track phút đã trigger để tránh trigger lặp hoặc bỏ sót
+    this.lastFanTriggerMinute = null;
+    this.lastLightTriggerMinute = null;
+
+    // Load settings từ DB trước, sau đó mới setup monitoring
+    // Dùng Promise thay vì setTimeout để đảm bảo thứ tự thực thi
+    this._loadSettingsFromDb().then(() => {
+      this.setupSensorMonitoring();
+    });
+  }
+
+  /**
+   * Load settings từ DB khi khởi động
+   * Đảm bảo checkAutoModeSchedule dùng đúng giá trị user đã lưu, không dùng default
+   */
+  async _loadSettingsFromDb() {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT setting_key, setting_value FROM automation_settings'
+      );
+      if (rows.length > 0) {
+        const fromDb = {};
+        rows.forEach(row => { fromDb[row.setting_key] = row.setting_value; });
+
+        const parseBool = (val, fallback) => {
+          if (val === 'true' || val === '1' || val === true || val === 1) return true;
+          if (val === 'false' || val === '0' || val === false || val === 0) return false;
+          return fallback;
+        };
+
+        // Normalize HH:MM:SS → HH:MM (MySQL TIME type trả về có giây)
+        const normalizeTime = (t) => (t && t.length > 5) ? t.slice(0, 5) : (t ?? null);
+        this.autoModeSettings = {
+          fanEnabled: parseBool(fromDb.fanEnabled, true),
+          fanTime: normalizeTime(fromDb.fanTime) ?? this.autoModeSettings.fanTime,
+          fanTemperature: Number(fromDb.fanTemperature ?? this.autoModeSettings.fanTemperature),
+          lightEnabled: parseBool(fromDb.lightEnabled, true),
+          lightTime: normalizeTime(fromDb.lightTime) ?? this.autoModeSettings.lightTime,
+        };
+        console.log('✅ [AutomationService] Settings loaded from DB on startup:', this.autoModeSettings);
+      } else {
+        console.log('ℹ️ [AutomationService] No settings in DB, using defaults');
+      }
+    } catch (error) {
+      console.error('❌ [AutomationService] Failed to load settings on startup:', error.message);
+    }
   }
 
   /**
@@ -39,7 +85,7 @@ class AutomationService {
    */
   async executeMorningMode() {
     console.log('🌅 [Morning Mode] Starting fade-in effect at 5:45 AM');
-    
+
     const startTime = new Date();
     startTime.setHours(5, 45, 0, 0);
     const endTime = new Date();
@@ -60,13 +106,13 @@ class AutomationService {
     for (let i = 0; i <= steps; i++) {
       const progress = i / steps; // 0 to 1
       const brightness = Math.round(5 + (95 * progress)); // 5% to 100%
-      
+
       // Interpolate color: warm → cool
       const colorProgress = progress;
       const r = Math.round(255);
       const g = Math.round(140 + (115 * colorProgress)); // 140 → 255
       const b = Math.round(80 + (175 * colorProgress)); // 80 → 255
-      
+
       // Convert RGB to decimal
       const color = (r << 16) | (g << 8) | b;
 
@@ -84,7 +130,7 @@ class AutomationService {
 
     // Set fan to Speed 1
     try {
-      await mqttService.publishCommand('fan-speed', '50'); // 50 = Speed 1
+      await mqttService.publishCommand('fan-state', '1'); // Speed 1
       console.log('🌅 [Morning Mode] Fan set to Speed 1');
     } catch (error) {
       console.error('❌ [Morning Mode] Fan error:', error.message);
@@ -116,7 +162,7 @@ class AutomationService {
       console.log('🌙 [Night Mode] Light set to 20% warm amber');
 
       // 2. Set fan to Auto mode (Speed 3)
-      await mqttService.publishCommand('fan-speed', '150');
+      await mqttService.publishCommand('fan-state', '3'); // Speed 3 = Auto
       console.log('🌙 [Night Mode] Fan set to Auto mode');
 
       // 3. Check garage door status - auto close if open
@@ -164,7 +210,7 @@ class AutomationService {
         console.log('🚗 [Away Mode] All lights OFF');
 
         // 2. Turn off fan
-        await mqttService.publishCommand('fan-speed', '0');
+        await mqttService.publishCommand('fan-state', '0'); // OFF
         console.log('🚗 [Away Mode] Fan OFF');
 
         // 3. Turn off TV
@@ -221,7 +267,7 @@ class AutomationService {
       if (hour >= 19 && hour < 22) {
         const randomOn = Math.random() > 0.5;
         const brightness = randomOn ? Math.floor(Math.random() * 100) + 50 : 0; // 50-100% or OFF
-        
+
         try {
           if (randomOn) {
             // Set random warm color
@@ -261,14 +307,9 @@ class AutomationService {
           const { temperature, humidity } = result[0];
           this.sensorData = { temperature, humidity, lastUpdate: new Date() };
 
-          // Smart Fan Control based on temperature
-          await this.smartFanControl(temperature);
-
-          // Humidity check and alert
-          await this.humidityCheck(humidity);
-
-                  // AUTO Mode: Smart Fan Control with settings
-                  await this.smartFanControlWithSettings(temperature);
+          // AUTO Mode: Smart Fan Control based on temperature threshold from settings
+          await this.smartFanControlWithSettings(temperature);
+          // Note: humidity is stored in sensorData for display only — no auto action taken
         }
       } catch (error) {
         console.error('❌ [AUTO Mode] Sensor monitoring error:', error.message);
@@ -277,62 +318,8 @@ class AutomationService {
     // Also check schedule every minute
     setInterval(async () => {
       await this.checkAutoModeSchedule();
-    }, 60 * 1000);
+    }, 10 * 1000); // check mỗi 10 giây để không bỏ sót cửa sổ 1 phút
 
-  }
-
-  /**
-   * Smart Fan Control: Adjust fan speed based on temperature
-   */
-  async smartFanControl(temperature) {
-    let targetSpeed = 1; // Default Speed 1
-
-    if (temperature > 32) {
-      targetSpeed = 3; // High speed if > 32°C
-      console.log(`❄️ [Smart Fan] Temp ${temperature}°C > 32°C → Fan Speed 3`);
-    } else if (temperature > 28) {
-      targetSpeed = 2; // Medium speed if 28-32°C
-      console.log(`❄️ [Smart Fan] Temp ${temperature}°C > 28°C → Fan Speed 2`);
-    } else if (temperature < 26) {
-      targetSpeed = 1; // Low speed if < 26°C
-      console.log(`❄️ [Smart Fan] Temp ${temperature}°C < 26°C → Fan Speed 1`);
-    }
-
-    try {
-      // Convert UI level to backend value: 1=50, 2=100, 3=150
-      const speedValue = targetSpeed === 3 ? 150 : targetSpeed === 2 ? 100 : 50;
-      await mqttService.publishCommand('fan-speed', speedValue.toString());
-    } catch (error) {
-      console.error('❌ [Smart Fan] Error:', error.message);
-    }
-  }
-
-  /**
-   * Humidity Check: Alert and adjust if humidity > 80%
-   */
-  async humidityCheck(humidity) {
-    if (humidity > 80) {
-      console.log(`💧 [Humidity Alert] Humidity ${humidity}% > 80% → Enabling air circulation`);
-
-      try {
-        // Turn on fan at low speed
-        await mqttService.publishCommand('fan-speed', '50');
-
-        // Change light to warm color to create "dry" feeling
-        const warmColor = 16757760;
-        await mqttService.publishCommand('rgb-state', warmColor.toString());
-
-        // Log alert
-        await pool.execute(
-          'INSERT INTO action_logs (device, action) VALUES (?, ?)',
-          ['humidity-alert', `High humidity ${humidity}% - Auto fan ON, color warm`]
-        );
-
-        console.log('💧 [Humidity] Fan ON, light color warm');
-      } catch (error) {
-        console.error('❌ [Humidity Check] Error:', error.message);
-      }
-    }
   }
 
   /**
@@ -367,21 +354,23 @@ class AutomationService {
   getSensorData() {
     return this.sensorData;
   }
-  
+
 
   /**
    * Smart Fan Control based on AUTO Mode settings
    * Checks if current temperature exceeds fanTemperature setting
+   * Publishes fan-state (0=OFF, 1=Speed1, 2=Speed2, 3=Auto)
    */
   async smartFanControlWithSettings(temperature) {
     if (!this.automationModes.auto.active) return;
+    if (!this.autoModeSettings.fanEnabled) return;
 
-    const fanTempThreshold = this.autoModeSettings.fanTemperature;
-    
+    const fanTempThreshold = Number(this.autoModeSettings.fanTemperature);
+
     if (temperature >= fanTempThreshold) {
-      console.log(`🌡️ [AUTO Mode] Temperature ${temperature}°C >= Setting ${fanTempThreshold}°C → Turning on fan`);
+      console.log(`🌡️ [AUTO Mode] Temperature ${temperature}°C >= Setting ${fanTempThreshold}°C → Turning on fan (fan-state=2)`);
       try {
-        await mqttService.publishCommand('fan-speed', '100'); // Turn on fan at medium speed
+        await mqttService.publishCommand('fan-state', '2');
         await pool.execute(
           'INSERT INTO action_logs (device, action) VALUES (?, ?)',
           ['auto-mode', `Fan auto-on by temperature: ${temperature}°C >= ${fanTempThreshold}°C`]
@@ -399,15 +388,31 @@ class AutomationService {
   async checkAutoModeSchedule() {
     if (!this.automationModes.auto.active) return;
 
+    // FIX: Dùng giờ Việt Nam thay vì giờ UTC của server/Docker (lệch +7 tiếng)
     const now = new Date();
-    const currentTime = now.getHours().toString().padStart(2, '0') + ':' + 
-                        now.getMinutes().toString().padStart(2, '0');
+    const vnNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+    const hour = vnNow.getHours().toString().padStart(2, '0');
+    const minute = vnNow.getMinutes().toString().padStart(2, '0');
+    const currentTime = `${hour}:${minute}`;
 
-    // Check fan time
-    if (currentTime === this.autoModeSettings.fanTime) {
-      console.log(`🕐 [AUTO Mode] Fan auto-on time matched: ${currentTime}`);
+    // Key bao gồm CẢ NGÀY để trigger đúng mỗi ngày.
+    // Bug cũ: chỉ dùng 'HH:MM' → sau khi trigger '07:00', ngày hôm sau
+    // vẫn thấy lastXTriggerMinute === '07:00' === minuteKey → không bao giờ trigger lại.
+    const dateStr = `${vnNow.getFullYear()}-${String(vnNow.getMonth() + 1).padStart(2, '0')}-${String(vnNow.getDate()).padStart(2, '0')}`;
+    const minuteKey = `${dateStr}_${currentTime}`;
+
+    // Check fan time — only if fan automation is enabled
+    // trim() để loại bỏ khoảng trắng thừa có thể có từ DB
+    const fanTimeNorm = (this.autoModeSettings.fanTime ?? '').trim().slice(0, 5);
+    if (
+      this.autoModeSettings.fanEnabled &&
+      currentTime === fanTimeNorm &&
+      this.lastFanTriggerMinute !== minuteKey
+    ) {
+      this.lastFanTriggerMinute = minuteKey;
+      console.log(`🕐 [AUTO Mode] Fan auto-on time matched: ${currentTime} → fan-state=2`);
       try {
-        await mqttService.publishCommand('fan-speed', '50'); // Turn on fan
+        await mqttService.publishCommand('fan-state', '2');
         await pool.execute(
           'INSERT INTO action_logs (device, action) VALUES (?, ?)',
           ['auto-mode', `Fan auto-on by schedule: ${currentTime}`]
@@ -417,11 +422,18 @@ class AutomationService {
       }
     }
 
-    // Check light time
-    if (currentTime === this.autoModeSettings.lightTime) {
-      console.log(`🕐 [AUTO Mode] Light auto-on time matched: ${currentTime}`);
+    // Check light time — only if light automation is enabled
+    // trim() để loại bỏ khoảng trắng thừa có thể có từ DB
+    const lightTimeNorm = (this.autoModeSettings.lightTime ?? '').trim().slice(0, 5);
+    if (
+      this.autoModeSettings.lightEnabled &&
+      currentTime === lightTimeNorm &&
+      this.lastLightTriggerMinute !== minuteKey
+    ) {
+      this.lastLightTriggerMinute = minuteKey;
+      console.log(`🕐 [AUTO Mode] Light auto-on time matched: ${currentTime} → rgb-state=16757760`);
       try {
-        await mqttService.publishCommand('rgb-state', '16777215'); // Turn on light (white)
+        await mqttService.publishCommand('rgb-state', '16757760');
         await pool.execute(
           'INSERT INTO action_logs (device, action) VALUES (?, ?)',
           ['auto-mode', `Light auto-on by schedule: ${currentTime}`]
@@ -433,24 +445,154 @@ class AutomationService {
   }
 
   /**
-   * Get AUTO Mode settings
+   * Get AUTO Mode settings - load from DB first, fallback to memory
    */
   async getAutoModeSettings() {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT setting_key, setting_value FROM automation_settings'
+      );
+
+      if (rows.length > 0) {
+        const fromDb = {};
+        rows.forEach(row => { fromDb[row.setting_key] = row.setting_value; });
+
+        // parseBool: DB lưu string "true"/"false", Number("true")=NaN nên KHÔNG dùng Boolean(Number())
+        const parseBool = (val, fallback) => {
+          if (val === 'true' || val === '1' || val === true || val === 1) return true;
+          if (val === 'false' || val === '0' || val === false || val === 0) return false;
+          return fallback;
+        };
+
+        // Normalize HH:MM:SS → HH:MM (MySQL TIME type trả về có giây)
+        const normalizeTime = (t) => (t && t.length > 5) ? t.slice(0, 5) : (t ?? null);
+        this.autoModeSettings = {
+          fanEnabled: parseBool(fromDb.fanEnabled, true),
+          fanTime: normalizeTime(fromDb.fanTime) ?? this.autoModeSettings.fanTime,
+          fanTemperature: Number(fromDb.fanTemperature ?? this.autoModeSettings.fanTemperature),
+          lightEnabled: parseBool(fromDb.lightEnabled, true),
+          lightTime: normalizeTime(fromDb.lightTime) ?? this.autoModeSettings.lightTime,
+        };
+      }
+    } catch (error) {
+      console.error('❌ [AUTO Mode] Failed to load settings from DB:', error.message);
+    }
+
     return this.autoModeSettings;
   }
 
   /**
-   * Set AUTO Mode settings
+   * Set AUTO Mode settings - persist to DB
    */
   async setAutoModeSettings(settings) {
-    this.autoModeSettings = {
-      fanTime: settings.fanTime,
-      lightTime: settings.lightTime,
-      fanTemperature: settings.fanTemperature
+    // parseBool: xử lý boolean JS, string "true"/"false", number 1/0
+    const parseBool = (val, fallback) => {
+      if (val === 'true' || val === '1' || val === true || val === 1) return true;
+      if (val === 'false' || val === '0' || val === false || val === 0) return false;
+      return fallback;
     };
-    
-    console.log(`⚙️ [AUTO Mode Settings] Updated:`, this.autoModeSettings);
+
+    // Lưu lại trạng thái enabled trước khi thay đổi để so sánh
+    const prevFanEnabled = this.autoModeSettings.fanEnabled;
+    const prevLightEnabled = this.autoModeSettings.lightEnabled;
+    const prevFanTime = this.autoModeSettings.fanTime;
+    const prevLightTime = this.autoModeSettings.lightTime;
+
+    // Normalize HH:MM:SS → HH:MM phòng trường hợp frontend hoặc DB gửi có giây
+    const normalizeTime = (t) => (t && t.length > 5) ? t.slice(0, 5) : (t ?? null);
+    this.autoModeSettings = {
+      fanEnabled: parseBool(settings.fanEnabled, this.autoModeSettings.fanEnabled),
+      fanTime: normalizeTime(settings.fanTime) ?? this.autoModeSettings.fanTime,
+      fanTemperature: Number(settings.fanTemperature ?? this.autoModeSettings.fanTemperature), // luôn lưu dạng number để so sánh nhiệt độ đúng
+      lightEnabled: parseBool(settings.lightEnabled, this.autoModeSettings.lightEnabled),
+      lightTime: normalizeTime(settings.lightTime) ?? this.autoModeSettings.lightTime,
+    };
+
+    // Nếu giờ hẹn thay đổi → reset trigger cache về null để giờ mới được nhận diện đúng.
+    // minuteKey đã bao gồm ngày (YYYY-MM-DD_HH:MM) nên không lo trigger lặp vào ngày hôm sau.
+    if (this.autoModeSettings.fanTime !== prevFanTime) {
+      this.lastFanTriggerMinute = null;
+      console.log(`⚙️ [AUTO Mode] Fan schedule changed to ${this.autoModeSettings.fanTime} — trigger cache reset`);
+    }
+    if (this.autoModeSettings.lightTime !== prevLightTime) {
+      this.lastLightTriggerMinute = null;
+      console.log(`⚙️ [AUTO Mode] Light schedule changed to ${this.autoModeSettings.lightTime} — trigger cache reset`);
+    }
+
+    try {
+      // Upsert each setting key into DB
+      const entries = Object.entries(this.autoModeSettings);
+      for (const [key, value] of entries) {
+        await pool.execute(
+          `INSERT INTO automation_settings (setting_key, setting_value)
+           VALUES (?, ?)
+           ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+          [key, value !== null && value !== undefined ? String(value) : null]
+        );
+      }
+      console.log(`⚙️ [AUTO Mode Settings] Saved to DB:`, this.autoModeSettings);
+    } catch (error) {
+      console.error('❌ [AUTO Mode] Failed to save settings to DB:', error.message);
+    }
+
+    // Chỉ áp dụng ngay lên thiết bị khi trạng thái enabled/disabled thay đổi
+    // KHÔNG bật/tắt thiết bị khi user chỉ điều chỉnh giờ hẹn hoặc ngưỡng nhiệt độ
+    if (this.automationModes.auto.active) {
+      const fanEnabledChanged = this.autoModeSettings.fanEnabled !== prevFanEnabled;
+      const lightEnabledChanged = this.autoModeSettings.lightEnabled !== prevLightEnabled;
+      if (fanEnabledChanged || lightEnabledChanged) {
+        await this._applySettingsNow(fanEnabledChanged, lightEnabledChanged);
+      }
+    }
+
     return this.autoModeSettings;
+  }
+
+  /**
+   * Áp dụng settings ngay lên thiết bị khi AUTO Mode đang bật.
+   * Chỉ áp dụng thiết bị có trạng thái enabled/disabled thay đổi.
+   * KHÔNG gọi hàm này khi user chỉ đổi giờ hoặc ngưỡng nhiệt độ.
+   *
+   * @param {boolean} applyFan   - true nếu trạng thái fanEnabled vừa thay đổi
+   * @param {boolean} applyLight - true nếu trạng thái lightEnabled vừa thay đổi
+   */
+  async _applySettingsNow(applyFan = true, applyLight = true) {
+    console.log('⚡ [AUTO Mode] Applying changed enabled-state to devices...');
+
+    if (applyFan) {
+      try {
+        if (this.autoModeSettings.fanEnabled) {
+          await mqttService.publishCommand('fan-state', '2');
+          console.log('⚡ [AUTO Mode] Fan turned ON (fan-state=2)');
+        } else {
+          await mqttService.publishCommand('fan-state', '0');
+          console.log('⚡ [AUTO Mode] Fan turned OFF (fan-state=0)');
+        }
+      } catch (error) {
+        console.error('❌ [AUTO Mode] Failed to apply fan state:', error.message);
+      }
+    }
+
+    if (applyLight) {
+      try {
+        if (this.autoModeSettings.lightEnabled) {
+          await mqttService.publishCommand('rgb-state', '16757760');
+          console.log('⚡ [AUTO Mode] Light turned ON (rgb-state=16757760)');
+        } else {
+          await mqttService.publishCommand('rgb-state', '0');
+          console.log('⚡ [AUTO Mode] Light turned OFF (rgb-state=0)');
+        }
+      } catch (error) {
+        console.error('❌ [AUTO Mode] Failed to apply light state:', error.message);
+      }
+    }
+
+    try {
+      await pool.execute(
+        'INSERT INTO action_logs (device, action) VALUES (?, ?)',
+        ['auto-mode', `Enabled-state applied: fan=${this.autoModeSettings.fanEnabled} (changed=${applyFan}), light=${this.autoModeSettings.lightEnabled} (changed=${applyLight})`]
+      );
+    } catch (_) { }
   }
 
 }
