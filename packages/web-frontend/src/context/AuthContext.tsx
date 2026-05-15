@@ -4,6 +4,7 @@ interface AuthContextType {
     token: string | null;
     user: string | null;
     isAuthenticated: boolean;
+    isLoading: boolean; 
     setToken: (token: string) => void;
     setUser: (user: string) => void;
     logout: () => void;
@@ -15,18 +16,17 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [token, setTokenState] = useState<string | null>(null);
     const [user, setUserState] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true); // 👈 thêm
 
-    // Initialize from localStorage on mount
     useEffect(() => {
         const storedToken = localStorage.getItem('token');
         const storedUser = localStorage.getItem('username');
-        
         if (storedToken) {
             setTokenState(storedToken);
             setUserState(storedUser);
         }
+        setIsLoading(false); 
     }, []);
-
     const setToken = (newToken: string) => {
         setTokenState(newToken);
         localStorage.setItem('token', newToken);
@@ -55,6 +55,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         token,
         user,
         isAuthenticated: !!token,
+        isLoading, 
         setToken,
         setUser,
         logout,
