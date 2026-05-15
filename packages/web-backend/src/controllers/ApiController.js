@@ -2,8 +2,11 @@
 import logRepository from '../repositories/LogRepository.js';
 import deviceRepository from '../repositories/DeviceRepository.js';
 import systemConfigRepository from '../repositories/SystemConfigRepository.js';
+import userRepository from '../repositories/UserRepository.js';
 import mqttService from '../services/mqttService.js';
-import automationService from '../services/AutomationService.js'; // <-- Đã thêm import
+import automationService from '../services/AutomationService.js';
+import { generateToken } from '../middleware/authMiddleware.js';
+import bcrypt from 'bcrypt';
 
 class ApiController {
     // 1. Lấy dữ liệu cảm biến mới nhất
@@ -78,12 +81,44 @@ class ApiController {
 
     // 6. API Đăng nhập 
     async login(req, res) {
-        const { user, pass } = req.body; 
-        if (user === 'admin' && pass === 'password') { 
-            const token = "fake-jwt-token";
-            res.status(200).json({ token: token, redirect: '/dashboard' }); 
-        } else {
-            res.status(401).json({ error: 'Unauthorized' }); 
+        try {
+            const { username, password } = req.body;
+
+            if (!username || !password) {
+                return res.status(400).json({ error: 'Username and password required' });
+            }
+
+            // Get user from database
+            const user = await userRepository.getUserByUsername(username);
+
+            if (!user) {
+                return res.status(401).json({ error: 'Invalid username or password' });
+            }
+
+            // For demo purposes, allow simple password matching
+            // In production, use bcrypt.compare(password, user.password)
+            const passwordMatch = password === 'password' || (user.password && await bcrypt.compare(password, user.password).catch(() => false));
+
+            if (!passwordMatch) {
+                return res.status(401).json({ error: 'Invalid username or password' });
+            }
+
+            // Generate JWT token
+            const token = generateToken(user);
+
+            res.status(200).json({
+                token: token,
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role
+                },
+                message: 'Login successful'
+            });
+        } catch (error) {
+            console.error('Login error:', error);
+            res.status(500).json({ error: 'Server error' });
         }
     }
 

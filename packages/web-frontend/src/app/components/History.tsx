@@ -1,6 +1,6 @@
 import { Lightbulb, DoorClosed, Fan, Tv, Lock, Thermometer, Shield } from "lucide-react";
 import { useState, useEffect } from "react";
-import axios from "axios";
+import axios from "../utils/axiosInstance";
 import { formatActionDisplay } from "../utils/actionFormatter";
 
 interface HistoryEntry {

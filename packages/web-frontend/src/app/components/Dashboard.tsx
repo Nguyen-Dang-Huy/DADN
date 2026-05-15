@@ -1,6 +1,6 @@
 import { Thermometer, Droplet, Zap, Shield, Lightbulb, Fan, Power, Palette } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import axios from "../utils/axiosInstance";
 import { useNotification } from "../context/NotificationContext";
 
 interface Device {
