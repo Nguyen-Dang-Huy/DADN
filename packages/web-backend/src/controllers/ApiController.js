@@ -2,12 +2,11 @@
 import logRepository from '../repositories/LogRepository.js';
 import deviceRepository from '../repositories/DeviceRepository.js';
 import systemConfigRepository from '../repositories/SystemConfigRepository.js';
-import userRepository from '../repositories/UserRepository.js';
 import mqttService from '../services/mqttService.js';
+import userRepository from '../repositories/UserRepository.js';
 import automationService from '../services/AutomationService.js';
 import { generateToken } from '../middleware/authMiddleware.js';
 import bcrypt from 'bcrypt';
-
 class ApiController {
     // 1. Lấy dữ liệu cảm biến mới nhất
     async getLatestSensors(req, res) {
@@ -20,7 +19,7 @@ class ApiController {
             });
         } catch (error) {
             console.error("DEBUG - getLatestSensors Error:", error);
-            res.status(500).json({ error: 'Server error' }); 
+            res.status(500).json({ error: 'Server error' });
         }
     }
 
@@ -28,7 +27,7 @@ class ApiController {
     async controlDevice(req, res) {
         try {
             const deviceId = req.params.id;
-            const { action } = req.body; 
+            const { action } = req.body;
 
             const device = await deviceRepository.getDeviceById(deviceId);
             if (!device) {
@@ -42,16 +41,16 @@ class ApiController {
             res.status(200).json({ action: action, success: true });
         } catch (error) {
             console.error('Control device error:', error);
-            res.status(400).json({ error: 'Invalid input' }); 
+            res.status(400).json({ error: 'Invalid input' });
         }
     }
 
     // 3. Cấu hình ngưỡng nhiệt độ
     async configThreshold(req, res) {
         try {
-            const { temperature } = req.body; 
+            const { temperature } = req.body;
             await systemConfigRepository.setThreshold(temperature);
-            res.status(200).json({ temperature: temperature, success: true }); 
+            res.status(200).json({ temperature: temperature, success: true });
         } catch (error) {
             res.status(500).json({ error: 'Server error' });
         }
@@ -62,7 +61,7 @@ class ApiController {
         try {
             const { from, to } = req.query;
             const logs = await logRepository.getLogs(from, to);
-            res.status(200).json(logs); 
+            res.status(200).json(logs);
         } catch (error) {
             res.status(500).json({ error: 'Server error' });
         }
@@ -83,29 +82,22 @@ class ApiController {
     async login(req, res) {
         try {
             const { username, password } = req.body;
-
             if (!username || !password) {
                 return res.status(400).json({ error: 'Username and password required' });
             }
-
             // Get user from database
             const user = await userRepository.getUserByUsername(username);
-
             if (!user) {
                 return res.status(401).json({ error: 'Invalid username or password' });
             }
-
             // For demo purposes, allow simple password matching
             // In production, use bcrypt.compare(password, user.password)
             const passwordMatch = password === 'password' || (user.password && await bcrypt.compare(password, user.password).catch(() => false));
-
             if (!passwordMatch) {
                 return res.status(401).json({ error: 'Invalid username or password' });
             }
-
             // Generate JWT token
             const token = generateToken(user);
-
             res.status(200).json({
                 token: token,
                 user: {
@@ -119,6 +111,7 @@ class ApiController {
         } catch (error) {
             console.error('Login error:', error);
             res.status(500).json({ error: 'Server error' });
+
         }
     }
 
@@ -133,7 +126,7 @@ class ApiController {
 
             // Gọi service thực thi kịch bản (ví dụ: tắt đèn, bật giả lập có người...)
             const result = await automationService.setModeStatus(mode, active);
-            
+
             res.status(200).json(result);
         } catch (error) {
             console.error('❌ Set automation mode error:', error);
@@ -151,7 +144,7 @@ class ApiController {
             res.status(500).json({ error: 'Server error' });
         }
     }
-    
+
     // 9. Lấy cài đặt AUTO Mode
     async getAutomationSettings(req, res) {
         try {
@@ -166,16 +159,22 @@ class ApiController {
     // 10. Lưu cài đặt AUTO Mode
     async setAutomationSettings(req, res) {
         try {
-            const { fanTime, lightTime, fanTemperature } = req.body;
-            
-            if (!fanTime || !lightTime || fanTemperature === undefined) {
+            const { fanEnabled, fanTime, fanTemperature, lightEnabled, lightTime } = req.body;
+
+            // fanEnabled/lightEnabled có thể là false (boolean hợp lệ) → không dùng ! để check
+            // Chỉ validate những field bắt buộc phải có giá trị string
+            if (typeof fanTime !== 'string' || fanTime.trim() === '' ||
+                typeof lightTime !== 'string' || lightTime.trim() === '' ||
+                fanTemperature === undefined || fanTemperature === null) {
                 return res.status(400).json({ error: 'Missing required parameters' });
             }
 
             const settings = await automationService.setAutoModeSettings({
+                fanEnabled,
                 fanTime,
+                fanTemperature: parseFloat(fanTemperature),
+                lightEnabled,
                 lightTime,
-                fanTemperature: parseFloat(fanTemperature)
             });
 
             res.status(200).json(settings);
