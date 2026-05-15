@@ -54,3 +54,7 @@ INSERT INTO devices (name, type, feed_key, status) VALUES
 ('Living Room TV', 'tv', 'tv-state', 'OFF');
 
 INSERT INTO system_configs (key_name, value) VALUES ('temperature_threshold', '30');
+CREATE TABLE IF NOT EXISTS automation_settings (
+    setting_key   VARCHAR(50) PRIMARY KEY,
+    setting_value VARCHAR(255)
+);
