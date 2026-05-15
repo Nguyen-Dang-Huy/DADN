@@ -23,9 +23,11 @@ interface AutomationMode {
 }
 
 interface AutoSettings {
+  fanEnabled: boolean;
   fanTime: string;
-  lightTime: string;
   fanTemperature: string;
+  lightEnabled: boolean;
+  lightTime: string;
 }
 
 export function Automation() {
@@ -61,14 +63,42 @@ export function Automation() {
     },
   ]);
 
-  const [autoSettings, setAutoSettings] = useState<AutoSettings>({
+  const parseBool = (val: any): boolean => {
+    if (typeof val === 'boolean') return val;
+    if (val === 'true' || val === '1' || val === 1) return true;
+    return false;
+  };
+
+  const SETTINGS_CACHE_KEY = 'auto_mode_settings';
+
+  const loadCachedSettings = (): AutoSettings | null => {
+    try {
+      const cached = localStorage.getItem(SETTINGS_CACHE_KEY);
+      if (cached) return JSON.parse(cached);
+    } catch { }
+    return null;
+  };
+
+  const saveSettingsCache = (s: AutoSettings) => {
+    try { localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(s)); } catch { }
+  };
+
+  const defaultSettings: AutoSettings = {
+    fanEnabled: true,
     fanTime: "08:00",
-    lightTime: "07:00",
     fanTemperature: "28",
-  });
+    lightEnabled: true,
+    lightTime: "07:00",
+  };
+
+  const [autoSettings, setAutoSettings] = useState<AutoSettings>(
+    loadCachedSettings() ?? defaultSettings
+  );
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [tempSettings, setTempSettings] = useState<AutoSettings>(autoSettings);
+  const [tempSettings, setTempSettings] = useState<AutoSettings>(
+    loadCachedSettings() ?? defaultSettings
+  );
 
   // Đồng bộ state từ backend khi mở trang
   useEffect(() => {
@@ -79,8 +109,7 @@ export function Automation() {
 
         setModes(prevModes => prevModes.map(m => ({
           ...m,
-          // Kiểm tra xem backend có trả về state của mode này không, nếu có thì đè lên
-          active: backendModes[m.id] !== undefined ? backendModes[m.id].active : m.active 
+          active: backendModes[m.id] !== undefined ? backendModes[m.id].active : m.active
         })));
       } catch (error) {
         console.error('Failed to fetch automation state:', error);
@@ -90,10 +119,19 @@ export function Automation() {
     const fetchAutoSettings = async () => {
       try {
         const response = await axios.get('http://localhost:3000/api/automation/settings');
-        setAutoSettings(response.data);
-        setTempSettings(response.data);
+        const normalized: AutoSettings = {
+          fanEnabled: parseBool(response.data.fanEnabled),
+          fanTime: response.data.fanTime ?? "08:00",
+          fanTemperature: String(response.data.fanTemperature ?? "28"),
+          lightEnabled: parseBool(response.data.lightEnabled),
+          lightTime: response.data.lightTime ?? "07:00",
+        };
+        saveSettingsCache(normalized);
+        setAutoSettings(normalized);
+        setTempSettings(normalized);
       } catch (error) {
         console.error('Failed to fetch auto settings:', error);
+        // Fetch lỗi thì giữ nguyên cache localStorage đang có
       }
     };
 
@@ -125,7 +163,7 @@ export function Automation() {
       addNotification(`${mode.name} ${statusText}`, 'success');
     } catch (error) {
       console.error('Error updating automation mode:', error);
-      
+
       // Nếu API lỗi, trả lại trạng thái cũ trên UI
       setModes(prev => prev.map(m =>
         m.id === id ? { ...m, active: !newStatus } : m
@@ -136,11 +174,39 @@ export function Automation() {
   };
 
   const saveAutoSettings = async () => {
+    const isAutoActive = getAutoMode()?.active;
+
+    // Phát hiện xem user có thay đổi trạng thái enabled không (toggle bật/tắt)
+    const enabledChanged =
+      tempSettings.fanEnabled !== autoSettings.fanEnabled ||
+      tempSettings.lightEnabled !== autoSettings.lightEnabled;
+
     try {
-      await axios.post('http://localhost:3000/api/automation/settings', tempSettings);
-      setAutoSettings(tempSettings);
+      // 1. Lưu settings lên backend
+      // Backend chỉ áp dụng ngay lên thiết bị nếu trạng thái enabled thay đổi
+      const { data: savedSettings } = await axios.post('http://localhost:3000/api/automation/settings', tempSettings);
+      saveSettingsCache(savedSettings);
+      setAutoSettings(savedSettings);
+      setTempSettings(savedSettings); // sync tempSettings với data đã normalize từ server
       setSettingsOpen(false);
-      addNotification('AUTO Mode settings saved successfully', 'success');
+
+      if (isAutoActive && enabledChanged) {
+        // 2. Fetch lại trạng thái devices từ backend để cập nhật UI
+        try {
+          const { data: deviceList } = await axios.get('http://localhost:3000/api/devices');
+          // Nếu backend trả về danh sách devices với trạng thái mới nhất,
+          // component cha (Dashboard) sẽ cần refresh — emit event hoặc gọi callback nếu có.
+          // Tạm thời dispatch custom event để các component khác biết cần refresh:
+          window.dispatchEvent(new CustomEvent('devicesUpdated', { detail: deviceList }));
+        } catch (_) { }
+
+        addNotification('Đã lưu và áp dụng trạng thái thiết bị', 'success');
+      } else if (isAutoActive) {
+        // Chỉ đổi giờ/ngưỡng nhiệt độ → không bật/tắt thiết bị ngay, chỉ cập nhật lịch hẹn
+        addNotification('Đã lưu cài đặt — đèn/quạt sẽ tự bật đúng giờ đã hẹn', 'success');
+      } else {
+        addNotification('Đã lưu cài đặt (AUTO Mode đang tắt, chưa áp dụng)', 'success');
+      }
     } catch (error) {
       console.error('Error saving auto settings:', error);
       addNotification('Failed to save settings', 'error');
@@ -162,17 +228,15 @@ export function Automation() {
           return (
             <div
               key={mode.id}
-              className={`bg-white rounded-xl p-6 shadow-sm border-2 transition-all relative ${
-                mode.active
+              className={`bg-white rounded-xl p-6 shadow-sm border-2 transition-all relative ${mode.active
                   ? 'border-green-500 bg-green-50'
                   : 'border-gray-200'
-              }`}
+                }`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4 flex-1">
-                  <div className={`p-3 rounded-lg ${
-                    mode.active ? 'bg-green-100' : 'bg-gray-100'
-                  }`}>
+                  <div className={`p-3 rounded-lg ${mode.active ? 'bg-green-100' : 'bg-gray-100'
+                    }`}>
                     <Icon className={mode.active ? 'text-green-600' : 'text-gray-600'} size={28} />
                   </div>
 
@@ -191,14 +255,12 @@ export function Automation() {
 
                 <button
                   onClick={() => toggleMode(mode.id)}
-                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ml-4 flex-shrink-0 ${
-                    mode.active ? 'bg-green-500' : 'bg-gray-300'
-                  }`}
+                  className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ml-4 flex-shrink-0 ${mode.active ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
                 >
                   <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                      mode.active ? 'translate-x-6' : 'translate-x-1'
-                    }`}
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${mode.active ? 'translate-x-6' : 'translate-x-1'
+                      }`}
                   />
                 </button>
               </div>
@@ -206,7 +268,10 @@ export function Automation() {
               {/* Settings button for AUTO Mode */}
               {isAutoMode && (
                 <div className="absolute bottom-4 right-4">
-                  <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+                  <Dialog open={settingsOpen} onOpenChange={(open) => {
+                    if (open) setTempSettings(autoSettings); // sync mỗi lần mở
+                    setSettingsOpen(open);
+                  }}>
                     <DialogTrigger asChild>
                       <button className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium flex items-center gap-1">
                         <SettingsIcon size={14} />
@@ -217,56 +282,84 @@ export function Automation() {
                       <DialogHeader>
                         <DialogTitle>AUTO Mode Settings</DialogTitle>
                         <DialogDescription>
-                          Configure automatic settings. These will only take effect when AUTO Mode is enabled.
+                          Bật/tắt tự động cho từng thiết bị riêng biệt. Chỉ hoạt động khi AUTO Mode được bật.
                         </DialogDescription>
                       </DialogHeader>
 
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="fan-time">Fan Auto On Time</Label>
-                          <Input
-                            id="fan-time"
-                            type="time"
-                            value={tempSettings.fanTime}
-                            onChange={(e) => setTempSettings({
-                              ...tempSettings,
-                              fanTime: e.target.value
-                            })}
-                          />
-                          <p className="text-xs text-gray-500">Time when fan automatically turns on</p>
+                      <div className="space-y-5 py-2">
+
+                        {/* ===== FAN SECTION ===== */}
+                        <div className={`rounded-xl border-2 p-4 transition-colors ${tempSettings.fanEnabled ? 'border-cyan-400 bg-cyan-50' : 'border-gray-200 bg-gray-50'}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">🌀</span>
+                              <span className="font-semibold text-gray-800">Quạt tự động</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setTempSettings(prev => ({ ...prev, fanEnabled: !prev.fanEnabled }))}
+                              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${tempSettings.fanEnabled ? 'bg-cyan-500' : 'bg-gray-300'}`}
+                            >
+                              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${tempSettings.fanEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                          </div>
+
+                          <div className={`space-y-3 transition-opacity ${tempSettings.fanEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                            <div className="space-y-1">
+                              <Label htmlFor="fan-time" className="text-sm text-gray-600">Giờ bật tự động</Label>
+                              <Input
+                                id="fan-time"
+                                type="time"
+                                value={tempSettings.fanTime}
+                                onChange={(e) => setTempSettings(prev => ({ ...prev, fanTime: e.target.value }))}
+                              />
+                              <p className="text-xs text-gray-400">Quạt sẽ tự bật vào giờ này mỗi ngày</p>
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="fan-temp" className="text-sm text-gray-600">Bật khi nhiệt độ đạt (°C)</Label>
+                              <Input
+                                id="fan-temp"
+                                type="number"
+                                step="0.1"
+                                value={tempSettings.fanTemperature}
+                                onChange={(e) => setTempSettings(prev => ({ ...prev, fanTemperature: e.target.value }))}
+                              />
+                              <p className="text-xs text-gray-400">Quạt tự bật khi cảm biến vượt mức nhiệt này</p>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="light-time">Light Auto On Time</Label>
-                          <Input
-                            id="light-time"
-                            type="time"
-                            value={tempSettings.lightTime}
-                            onChange={(e) => setTempSettings({
-                              ...tempSettings,
-                              lightTime: e.target.value
-                            })}
-                          />
-                          <p className="text-xs text-gray-500">Time when light automatically turns on</p>
+                        {/* ===== LIGHT SECTION ===== */}
+                        <div className={`rounded-xl border-2 p-4 transition-colors ${tempSettings.lightEnabled ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 bg-gray-50'}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">💡</span>
+                              <span className="font-semibold text-gray-800">Đèn tự động</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setTempSettings(prev => ({ ...prev, lightEnabled: !prev.lightEnabled }))}
+                              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${tempSettings.lightEnabled ? 'bg-yellow-400' : 'bg-gray-300'}`}
+                            >
+                              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${tempSettings.lightEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                          </div>
+
+                          <div className={`space-y-1 transition-opacity ${tempSettings.lightEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                            <Label htmlFor="light-time" className="text-sm text-gray-600">Giờ bật tự động</Label>
+                            <Input
+                              id="light-time"
+                              type="time"
+                              value={tempSettings.lightTime}
+                              onChange={(e) => setTempSettings(prev => ({ ...prev, lightTime: e.target.value }))}
+                            />
+                            <p className="text-xs text-gray-400">Đèn sẽ tự bật vào giờ này mỗi ngày</p>
+                          </div>
                         </div>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="fan-temp">Fan Auto On Temperature (°C)</Label>
-                          <Input
-                            id="fan-temp"
-                            type="number"
-                            step="0.1"
-                            value={tempSettings.fanTemperature}
-                            onChange={(e) => setTempSettings({
-                              ...tempSettings,
-                              fanTemperature: e.target.value
-                            })}
-                          />
-                          <p className="text-xs text-gray-500">Temperature from sensor when fan automatically turns on</p>
-                        </div>
                       </div>
 
-                      <div className="flex justify-end gap-3">
+                      <div className="flex justify-end gap-3 pt-1">
                         <Button
                           variant="outline"
                           onClick={() => {
@@ -274,10 +367,10 @@ export function Automation() {
                             setSettingsOpen(false);
                           }}
                         >
-                          Cancel
+                          Hủy
                         </Button>
                         <Button onClick={saveAutoSettings}>
-                          Save Settings
+                          Lưu cài đặt
                         </Button>
                       </div>
                     </DialogContent>

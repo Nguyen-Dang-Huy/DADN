@@ -84,12 +84,47 @@ export function History() {
     }
   };
 
-  const formatAction = (action: string) => {
+  // Convert hue value (0–65535) sang hex color (#RRGGBB)
+  const hueToHex = (hue: number): string => {
+    const h = (hue / 65535) * 360;
+    const s = 1, v = 1;
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    let r = 0, g = 0, b = 0;
+    if (h < 60)      { r = c; g = x; b = 0; }
+    else if (h < 120){ r = x; g = c; b = 0; }
+    else if (h < 180){ r = 0; g = c; b = x; }
+    else if (h < 240){ r = 0; g = x; b = c; }
+    else if (h < 300){ r = x; g = 0; b = c; }
+    else             { r = c; g = 0; b = x; }
+    const toHex = (n: number) => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+  };
+
+  const formatAction = (action: string, device?: string) => {
     const normalized = action.trim();
     if (/turn(ed)?\s*on/i.test(normalized) || /TURN_ON/i.test(normalized)) return 'Turned On';
     if (/turn(ed)?\s*off/i.test(normalized) || /TURN_OFF/i.test(normalized)) return 'Turned Off';
     if (/open(ed)?/i.test(normalized) || /^OPEN$/i.test(normalized)) return 'Opened';
     if (/close(d)?/i.test(normalized) || /^CLOSED$/i.test(normalized)) return 'Closed';
+
+    // Xử lý action dạng số '0'/'1' từ rgb-state / led-state (bật/tắt đèn)
+    const isLightDevice = device && (
+      device.toLowerCase().includes('light') ||
+      device.toLowerCase().includes('led-state') ||
+      device.toLowerCase().includes('rgb-state')
+    );
+    if (isLightDevice) {
+      if (normalized === '0') return 'Turned Off';
+      if (normalized === '1') return 'Turned On';
+    }
+    // Nếu action là số lớn hơn 1 và device là đèn → thay đổi màu (trả về hex)
+    if (isLightDevice && /^\d+$/.test(normalized) && Number(normalized) > 1) {
+      const hex = hueToHex(Number(normalized));
+      return `color:${hex}`; // dùng prefix đặc biệt để render ô màu ở JSX
+    }
+
     if (/speed/i.test(normalized)) {
       return normalized
         .replace(/speed/i, 'Speed')
@@ -189,7 +224,24 @@ export function History() {
                         {actionType}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{formatActionDisplay(entry.action, entry.device)}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {(() => {
+                        const result = formatAction(entry.action, entry.device);
+                        if (result.startsWith('color:#')) {
+                          const hex = result.replace('color:', '');
+                          return (
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="inline-block w-5 h-5 rounded-md border border-gray-200 flex-shrink-0"
+                                style={{ backgroundColor: hex }}
+                              />
+                              <span>Changed Color</span>
+                            </div>
+                          );
+                        }
+                        return result;
+                      })()}
+                    </td>
                   </tr>
                 );
               })
