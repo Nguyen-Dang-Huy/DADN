@@ -31,6 +31,19 @@ jest.mock('../src/repositories/SystemConfigRepository.js', () => ({
     setThreshold: jest.fn()
 }));
 
+// Mock UserRepository để login không cần DB thật
+jest.mock('../src/repositories/UserRepository.js', () => ({
+    getUserByUsername: jest.fn()
+}));
+
+// Mock authMiddleware — named exports, khớp đúng cấu trúc thật
+jest.mock('../src/middleware/authMiddleware.js', () => ({
+    __esModule: true,
+    authMiddleware: jest.fn((req, res, next) => next()), // Bỏ qua xác thực token trong test
+    generateToken: jest.fn(() => 'fake-jwt-token'),
+    verifyToken: jest.fn(() => ({ id: 1, username: 'admin', role: 'admin' }))
+}));
+
 // Mock AutomationService chặn treo vòng lặp Open Handles
 jest.mock('../src/services/AutomationService.js', () => ({
     setModeStatus: jest.fn(),
@@ -39,14 +52,28 @@ jest.mock('../src/services/AutomationService.js', () => ({
     setAutoModeSettings: jest.fn()
 }));
 
+// ==========================================
+// 2. MOCK USER CHUẨN
+// ==========================================
+const mockUser = {
+    id: 1,
+    username: 'admin',
+    password: 'password',
+    email: 'admin@test.com',
+    role: 'admin'
+};
+
 describe('API Integration Tests', () => {
+    let authToken = 'fake-jwt-token'; // Dùng token giả vì verifyToken đã được mock
+
     beforeAll(() => {
         process.env.NODE_ENV = 'test';
         process.env.PORT = '3001';
+        process.env.JWT_SECRET = 'test-secret';
     });
 
     afterEach(() => {
-        jest.clearAllMocks(); // Dọn dẹp mock sau mỗi test
+        jest.clearAllMocks();
     });
 
     // ==========================================
@@ -54,22 +81,49 @@ describe('API Integration Tests', () => {
     // ==========================================
     describe('POST /login', () => {
         it('should login successfully', async () => {
+            const userRepository = await import('../src/repositories/UserRepository.js');
+            userRepository.default.getUserByUsername.mockResolvedValue(mockUser);
+
             const response = await request(app)
                 .post('/login')
-                .send({ user: 'admin', pass: 'password' })
+                .send({ username: 'admin', password: 'password' })
                 .expect(200);
 
             expect(response.body.token).toBeDefined();
-            expect(response.body.redirect).toBe('/dashboard');
+            expect(response.body.message).toBe('Login successful');
         });
 
-        it('should reject invalid login', async () => {
+        it('should reject login with wrong password', async () => {
+            const userRepository = await import('../src/repositories/UserRepository.js');
+            userRepository.default.getUserByUsername.mockResolvedValue(mockUser);
+
             const response = await request(app)
                 .post('/login')
-                .send({ user: 'admin', pass: 'wrongpass' })
+                .send({ username: 'admin', password: 'wrongpass' })
                 .expect(401);
 
-            expect(response.body.error).toBe('Unauthorized');
+            expect(response.body.error).toBe('Invalid username or password');
+        });
+
+        it('should reject login with non-existent user', async () => {
+            const userRepository = await import('../src/repositories/UserRepository.js');
+            userRepository.default.getUserByUsername.mockResolvedValue(null);
+
+            const response = await request(app)
+                .post('/login')
+                .send({ username: 'hacker', password: 'password' })
+                .expect(401);
+
+            expect(response.body.error).toBe('Invalid username or password');
+        });
+
+        it('should reject login with missing fields', async () => {
+            const response = await request(app)
+                .post('/login')
+                .send({ username: 'admin' }) // Thiếu password
+                .expect(400);
+
+            expect(response.body.error).toBe('Username and password required');
         });
     });
 
@@ -82,12 +136,13 @@ describe('API Integration Tests', () => {
                 { id: 1, name: 'LED Light', type: 'led', status: 'off' },
                 { id: 2, name: 'RGB Light', type: 'rgb', status: 'on' }
             ];
-            
-            const deviceRepository = require('../src/repositories/DeviceRepository.js');
-            deviceRepository.getAllDevices.mockResolvedValue(mockDevices);
+
+            const deviceRepository = await import('../src/repositories/DeviceRepository.js');
+            deviceRepository.default.getAllDevices.mockResolvedValue(mockDevices);
 
             const response = await request(app)
                 .get('/api/devices')
+                .set('Authorization', `Bearer ${authToken}`)
                 .expect(200);
 
             expect(response.body).toEqual(mockDevices);
@@ -96,27 +151,29 @@ describe('API Integration Tests', () => {
 
     describe('POST /api/devices/:id/control', () => {
         it('should control device', async () => {
-            const deviceRepository = require('../src/repositories/DeviceRepository.js');
-            const mqtt = require('../src/services/mqttService.js');
-            
-            deviceRepository.getDeviceById.mockResolvedValue({ id: 1, feed_key: 'test-feed' });
-            mqtt.publishCommand.mockResolvedValue(true); 
+            const deviceRepository = await import('../src/repositories/DeviceRepository.js');
+            const mqtt = await import('../src/services/mqttService.js');
+
+            deviceRepository.default.getDeviceById.mockResolvedValue({ id: 1, feed_key: 'test-feed' });
+            mqtt.default.publishCommand.mockResolvedValue(true);
 
             const response = await request(app)
-                .post('/api/devices/1/control') 
+                .post('/api/devices/1/control')
+                .set('Authorization', `Bearer ${authToken}`)
                 .send({ action: 'on' })
                 .expect(200);
 
             expect(response.body.success).toBe(true);
-            expect(mqtt.publishCommand).toHaveBeenCalledWith('test-feed', 'on'); 
+            expect(mqtt.default.publishCommand).toHaveBeenCalledWith('test-feed', 'on');
         });
 
         it('should return 404 if device not found', async () => {
-            const deviceRepository = require('../src/repositories/DeviceRepository.js');
-            deviceRepository.getDeviceById.mockResolvedValue(null);
+            const deviceRepository = await import('../src/repositories/DeviceRepository.js');
+            deviceRepository.default.getDeviceById.mockResolvedValue(null);
 
             const response = await request(app)
-                .post('/api/devices/99/control') 
+                .post('/api/devices/99/control')
+                .set('Authorization', `Bearer ${authToken}`)
                 .send({ action: 'on' })
                 .expect(404);
 
@@ -130,10 +187,14 @@ describe('API Integration Tests', () => {
     describe('GET /api/sensors/latest', () => {
         it('should return the latest sensor data', async () => {
             const mockSensorData = { temperature: 28.5, humidity: 65, timestamp: '2026-05-15T10:00:00Z' };
-            const logRepository = require('../src/repositories/LogRepository.js');
-            logRepository.getLatestSensorData.mockResolvedValue(mockSensorData);
+            const logRepository = await import('../src/repositories/LogRepository.js');
+            logRepository.default.getLatestSensorData.mockResolvedValue(mockSensorData);
 
-            const response = await request(app).get('/api/sensors/latest').expect(200);
+            const response = await request(app)
+                .get('/api/sensors/latest')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+
             expect(response.body.temperature).toBe(28.5);
         });
     });
@@ -141,15 +202,16 @@ describe('API Integration Tests', () => {
     describe('GET /api/logs', () => {
         it('should return logs with date filter', async () => {
             const mockLogs = [{ id: 1, action: 'Turned on Fan' }];
-            const logRepo = require('../src/repositories/LogRepository.js');
-            logRepo.getLogs.mockResolvedValue(mockLogs);
+            const logRepository = await import('../src/repositories/LogRepository.js');
+            logRepository.default.getLogs.mockResolvedValue(mockLogs);
 
             const response = await request(app)
                 .get('/api/logs?from=2026-05-01&to=2026-05-30')
+                .set('Authorization', `Bearer ${authToken}`)
                 .expect(200);
 
             expect(response.body).toEqual(mockLogs);
-            expect(logRepo.getLogs).toHaveBeenCalledWith('2026-05-01', '2026-05-30');
+            expect(logRepository.default.getLogs).toHaveBeenCalledWith('2026-05-01', '2026-05-30');
         });
     });
 
@@ -158,11 +220,12 @@ describe('API Integration Tests', () => {
     // ==========================================
     describe('POST /api/config/threshold', () => {
         it('should set temperature threshold successfully', async () => {
-            const configRepo = require('../src/repositories/SystemConfigRepository.js');
-            configRepo.setThreshold.mockResolvedValue(true);
+            const configRepo = await import('../src/repositories/SystemConfigRepository.js');
+            configRepo.default.setThreshold.mockResolvedValue(true);
 
             const response = await request(app)
                 .post('/api/config/threshold')
+                .set('Authorization', `Bearer ${authToken}`)
                 .send({ temperature: 35 })
                 .expect(200);
 
@@ -172,11 +235,12 @@ describe('API Integration Tests', () => {
 
     describe('POST /api/automation/mode', () => {
         it('should update automation mode', async () => {
-            const automationService = require('../src/services/AutomationService.js');
-            automationService.setModeStatus.mockResolvedValue({ mode: 'away', active: true, success: true });
+            const automationService = await import('../src/services/AutomationService.js');
+            automationService.default.setModeStatus.mockResolvedValue({ mode: 'away', active: true, success: true });
 
             const response = await request(app)
                 .post('/api/automation/mode')
+                .set('Authorization', `Bearer ${authToken}`)
                 .send({ mode: 'away', active: true })
                 .expect(200);
 
@@ -184,7 +248,12 @@ describe('API Integration Tests', () => {
         });
 
         it('should return 400 if parameters are missing', async () => {
-            const response = await request(app).post('/api/automation/mode').send({ mode: 'away' }).expect(400);
+            const response = await request(app)
+                .post('/api/automation/mode')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send({ mode: 'away' }) // Thiếu active
+                .expect(400);
+
             expect(response.body.error).toBe('Tham số không hợp lệ');
         });
     });
@@ -192,10 +261,14 @@ describe('API Integration Tests', () => {
     describe('GET /api/automation/settings', () => {
         it('should return current auto mode settings', async () => {
             const mockSettings = { fanTime: "08:00", lightTime: "07:00", fanTemperature: 28 };
-            const automationService = require('../src/services/AutomationService.js');
-            automationService.getAutoModeSettings.mockResolvedValue(mockSettings);
+            const automationService = await import('../src/services/AutomationService.js');
+            automationService.default.getAutoModeSettings.mockResolvedValue(mockSettings);
 
-            const response = await request(app).get('/api/automation/settings').expect(200);
+            const response = await request(app)
+                .get('/api/automation/settings')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(200);
+
             expect(response.body).toEqual(mockSettings);
         });
     });
@@ -203,10 +276,15 @@ describe('API Integration Tests', () => {
     describe('POST /api/automation/settings', () => {
         it('should save new auto mode settings', async () => {
             const newSettings = { fanTime: "09:00", lightTime: "06:30", fanTemperature: 26 };
-            const automationService = require('../src/services/AutomationService.js');
-            automationService.setAutoModeSettings.mockResolvedValue(newSettings);
+            const automationService = await import('../src/services/AutomationService.js');
+            automationService.default.setAutoModeSettings.mockResolvedValue(newSettings);
 
-            const response = await request(app).post('/api/automation/settings').send(newSettings).expect(200);
+            const response = await request(app)
+                .post('/api/automation/settings')
+                .set('Authorization', `Bearer ${authToken}`)
+                .send(newSettings)
+                .expect(200);
+
             expect(response.body.fanTemperature).toBe(26);
         });
     });
@@ -216,11 +294,15 @@ describe('API Integration Tests', () => {
     // ==========================================
     describe('Error Scenarios', () => {
         it('should handle database connection error', async () => {
-            const deviceRepository = require('../src/repositories/DeviceRepository.js');
-            deviceRepository.getAllDevices.mockRejectedValue(new Error('Database connection failed'));
+            const deviceRepository = await import('../src/repositories/DeviceRepository.js');
+            deviceRepository.default.getAllDevices.mockRejectedValue(new Error('Database connection failed'));
 
-            const response = await request(app).get('/api/devices').expect(500);
-            expect(response.body.error).toBe('Server error'); 
+            const response = await request(app)
+                .get('/api/devices')
+                .set('Authorization', `Bearer ${authToken}`)
+                .expect(500);
+
+            expect(response.body.error).toBe('Server error');
         });
     });
 });
