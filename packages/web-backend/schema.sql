@@ -1,6 +1,17 @@
 CREATE DATABASE IF NOT EXISTS iot_smart_home;
 USE iot_smart_home;
 
+-- Users table
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(100),
+    role VARCHAR(20) DEFAULT 'user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 CREATE TABLE devices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -29,6 +40,12 @@ CREATE TABLE system_configs (
     key_name VARCHAR(100) UNIQUE,
     value VARCHAR(255)
 );
+
+-- Insert demo user (password: password123 - hashed)
+-- This is a bcrypt hash of 'password123'
+INSERT INTO users (username, password, email, role) VALUES 
+('admin', '$2b$10$YourHashedPasswordHere', 'admin@smarthome.local', 'admin'),
+('user', '$2b$10$UserHashedPasswordHere', 'user@smarthome.local', 'user');
 
 INSERT INTO devices (name, type, feed_key, status) VALUES 
 ('Living Room Light', 'light', 'rgb-state', 'OFF'),

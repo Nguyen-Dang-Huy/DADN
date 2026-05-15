@@ -1,6 +1,6 @@
 import { Sofa, ChefHat, Bed, Bath, Thermometer, Droplet } from "lucide-react";
 import { useState, useEffect } from "react";
-import axios from "axios";
+import axios from "../utils/axiosInstance";
 
 interface RoomData {
   id: string;

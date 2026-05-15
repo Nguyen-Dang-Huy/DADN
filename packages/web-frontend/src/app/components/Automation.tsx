@@ -1,6 +1,6 @@
 import { Sparkles, Moon, Home, Sun, Settings as SettingsIcon } from "lucide-react";
 import { useState, useEffect } from "react";
-import axios from "axios";
+import axios from "../utils/axiosInstance";
 import { useNotification } from "../context/NotificationContext";
 import {
   Dialog,

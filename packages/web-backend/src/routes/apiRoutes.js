@@ -1,10 +1,14 @@
 import express from 'express';
 import apiController from '../controllers/ApiController.js';
+import { authMiddleware } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Các Endpoint 
+// Public routes
 router.post('/login', apiController.login);
+
+// Protected routes (require authentication)
+router.use(authMiddleware);
 router.get('/api/sensors/latest', apiController.getLatestSensors);
 router.get('/api/devices', apiController.getAllDevices);
 router.post('/api/devices/:id/control', apiController.controlDevice); 

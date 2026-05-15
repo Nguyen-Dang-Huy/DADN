@@ -1,12 +1,15 @@
-import { Link, Outlet, useLocation } from "react-router";
-import { Home, Zap, Workflow, Clock, Settings, HelpCircle, Bell, User, X } from "lucide-react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { Home, Zap, Workflow, Clock, Settings, HelpCircle, Bell, User, X, LogOut } from "lucide-react";
 import { useNotification } from "../context/NotificationContext";
+import { useAuth } from "../../context/AuthContext";
 // 1. Import Headless UI để làm Popover
 import { Popover, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 
 export function Layout() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { logout, user } = useAuth();
   // 2. Lấy thêm các hàm cần thiết từ NotificationContext
   const { notifications, unreadCount, markAsRead, clearNotifications, removeNotification } = useNotification();
 
@@ -26,6 +29,11 @@ export function Layout() {
     if (minutes < 60) return `${minutes} phút trước`;
     const hours = Math.floor(minutes / 60);
     return `${hours} giờ trước`;
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
   return (
@@ -163,13 +171,50 @@ export function Layout() {
               )}
             </Popover>
 
-            {/* User Profile - Không thay đổi */}
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-500 rounded-full flex items-center justify-center">
-                <User size={18} className="text-white" />
-              </div>
-              <span className="font-medium text-gray-900">John Doe</span>
-            </div>
+            {/* User Profile Dropdown */}
+            <Popover className="relative">
+              {({ open }) => (
+                <>
+                  <Popover.Button className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors focus:outline-none">
+                    <div className="w-9 h-9 bg-blue-500 rounded-full flex items-center justify-center">
+                      <User size={18} className="text-white" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-gray-900">{user || 'User'}</p>
+                      <p className="text-xs text-gray-500">Admin</p>
+                    </div>
+                  </Popover.Button>
+
+                  <Transition
+                    as={Fragment}
+                    enter="transition ease-out duration-200"
+                    enterFrom="opacity-0 translate-y-1"
+                    enterTo="opacity-100 translate-y-0"
+                    leave="transition ease-in duration-150"
+                    leaveFrom="opacity-100 translate-y-0"
+                    leaveTo="opacity-0 translate-y-1"
+                  >
+                    <Popover.Panel className="absolute right-0 mt-3 w-48 transform px-4 sm:px-0 z-50">
+                      <div className="overflow-hidden rounded-lg shadow-lg ring-1 ring-black ring-opacity-5 bg-white">
+                        <div className="p-4 border-b border-gray-100 bg-gray-50">
+                          <p className="text-sm font-semibold text-gray-900">{user || 'User'}</p>
+                          <p className="text-xs text-gray-500">Administrator</p>
+                        </div>
+                        <div className="p-2">
+                          <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <LogOut size={16} />
+                            Đăng xuất
+                          </button>
+                        </div>
+                      </div>
+                    </Popover.Panel>
+                  </Transition>
+                </>
+              )}
+            </Popover>
           </div>
         </header>
 
