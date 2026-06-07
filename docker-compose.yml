@@ -21,9 +21,9 @@ services:
       DB_PASSWORD: 123456
       DB_NAME: iot_smart_home
       PORT: 3000
-      MQTT_BROKER_URL: mqtts://io.adafruit.com:8883
-      MQTT_USERNAME: ${MQTT_USERNAME}
-      MQTT_KEY: ${MQTT_KEY}
+      MQTT_BROKER_URL: {MQTT_BROKER_URL}
+      MQTT_USERNAME: {MQTT_USERNAME}
+      MQTT_KEY: {MQTT_KEY}
     depends_on:
       - db
     ports:

@@ -68,7 +68,7 @@ class AutomationService {
           lightEnabled: parseBool(fromDb.lightEnabled, true),
           lightTime: normalizeTime(fromDb.lightTime) ?? this.autoModeSettings.lightTime,
         };
-        console.log('✅ [AutomationService] Settings loaded from DB on startup:', this.autoModeSettings);
+        console.log(' [AutomationService] Settings loaded from DB on startup:', this.autoModeSettings);
       } else {
         console.log('ℹ️ [AutomationService] No settings in DB, using defaults');
       }
@@ -557,16 +557,16 @@ class AutomationService {
    * @param {boolean} applyLight - true nếu trạng thái lightEnabled vừa thay đổi
    */
   async _applySettingsNow(applyFan = true, applyLight = true) {
-    console.log('⚡ [AUTO Mode] Applying changed enabled-state to devices...');
+    console.log(' [AUTO Mode] Applying changed enabled-state to devices...');
 
     if (applyFan) {
       try {
         if (this.autoModeSettings.fanEnabled) {
           await mqttService.publishCommand('fan-state', '2');
-          console.log('⚡ [AUTO Mode] Fan turned ON (fan-state=2)');
+          console.log(' [AUTO Mode] Fan turned ON (fan-state=2)');
         } else {
           await mqttService.publishCommand('fan-state', '0');
-          console.log('⚡ [AUTO Mode] Fan turned OFF (fan-state=0)');
+          console.log(' [AUTO Mode] Fan turned OFF (fan-state=0)');
         }
       } catch (error) {
         console.error('❌ [AUTO Mode] Failed to apply fan state:', error.message);
@@ -577,10 +577,10 @@ class AutomationService {
       try {
         if (this.autoModeSettings.lightEnabled) {
           await mqttService.publishCommand('rgb-state', '16757760');
-          console.log('⚡ [AUTO Mode] Light turned ON (rgb-state=16757760)');
+          console.log(' [AUTO Mode] Light turned ON (rgb-state=16757760)');
         } else {
           await mqttService.publishCommand('rgb-state', '0');
-          console.log('⚡ [AUTO Mode] Light turned OFF (rgb-state=0)');
+          console.log(' [AUTO Mode] Light turned OFF (rgb-state=0)');
         }
       } catch (error) {
         console.error('❌ [AUTO Mode] Failed to apply light state:', error.message);

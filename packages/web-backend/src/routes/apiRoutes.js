@@ -5,7 +5,7 @@ import { authMiddleware } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 // Public routes
-router.post('/login', apiController.login);
+router.post('/api/auth/login', apiController.login);
 
 // Protected routes (require authentication)
 router.use(authMiddleware);
