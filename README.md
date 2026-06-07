@@ -63,7 +63,7 @@ pnpm dev
 
 Visit `http://localhost:5173` for the dashboard.
 
-## 📦 Project Structure
+##  Project Structure
 
 ```
 ├── packages/
@@ -174,7 +174,7 @@ When creating PRs, use this format:
 ## 🎯 Feature Summary
 Brief description of what this PR implements
 
-## ✅ Changes Made
+##  Changes Made
 - [x] Backend API endpoint for sensor data
 - [x] Frontend dashboard component
 - [x] Database schema updates

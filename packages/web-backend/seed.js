@@ -30,7 +30,7 @@ async function seedUsers() {
             ['user', hashedPassword, 'user@smarthome.local', 'user']
         );
 
-        console.log('✅ Users seeded successfully');
+        console.log(' Users seeded successfully');
         console.log('Demo accounts:');
         console.log('  - Username: admin, Password: password');
         console.log('  - Username: user, Password: password');

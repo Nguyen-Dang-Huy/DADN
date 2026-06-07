@@ -27,7 +27,7 @@ class MqttService {
         };
 
         this.client.on('connect', () => {
-            console.log('✅ Connected to Adafruit IO');
+            console.log(' Connected to Adafruit IO');
             this.subscribeToAllFeeds();
         });
 

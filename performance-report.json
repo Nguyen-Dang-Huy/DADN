@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-06-07T15:25:18.552Z",
+  "bundleSize": {
+    "jsSize": "489.50KB",
+    "cssSize": "97.56KB",
+    "totalSize": "587.51KB",
+    "rawBytes": {
+      "js": 501249,
+      "css": 99903,
+      "total": 601608
+    }
+  },
+  "apiLatency": [
+    {
+      "endpoint": "Health Check",
+      "path": "/api/health",
+      "avgLatency": "4.20ms",
+      "minLatency": "1.00ms",
+      "maxLatency": "17.00ms",
+      "rawMs": {
+        "avg": 4.2,
+        "min": 1,
+        "max": 17
+      }
+    },
+    {
+      "endpoint": "Get Devices",
+      "path": "/api/devices",
+      "avgLatency": "1.00ms",
+      "minLatency": "1.00ms",
+      "maxLatency": "1.00ms",
+      "rawMs": {
+        "avg": 1,
+        "min": 1,
+        "max": 1
+      }
+    },
+    {
+      "endpoint": "Get Logs",
+      "path": "/api/logs",
+      "avgLatency": "1.00ms",
+      "minLatency": "1.00ms",
+      "maxLatency": "1.00ms",
+      "rawMs": {
+        "avg": 1,
+        "min": 1,
+        "max": 1
+      }
+    }
+  ],
+  "frontendPerformance": {
+    "loadTime": "3ms",
+    "pageSize": "0.45KB",
+    "rawMs": 3
+  }
+}
